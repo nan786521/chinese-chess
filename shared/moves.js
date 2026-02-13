@@ -38,10 +38,10 @@ export function generateAllLegalMoves(board, side) {
 }
 
 function wouldLeaveInCheck(board, fromRow, fromCol, toRow, toCol, side) {
-    const clone = board.clone();
-    clone.movePiece(fromRow, fromCol, toRow, toCol);
-    if (kingsAreFacing(clone)) return true;
-    return isUnderAttack(clone, side);
+    const captured = board.movePiece(fromRow, fromCol, toRow, toCol);
+    const illegal = kingsAreFacing(board) || isUnderAttack(board, side);
+    board.undoMove({ fromRow, fromCol, toRow, toCol, captured });
+    return illegal;
 }
 
 function isUnderAttack(board, side) {
