@@ -20,6 +20,28 @@ export class UI {
         this.darkGame = null;
         this.darkAI = new DarkChessAI();
         this.dcDifficulty = 'medium';
+        // Timeout tracking
+        this._turnTimeout = null;
+        this._disconnectInterval = null;
+    }
+
+    clearPendingTimeouts() {
+        if (this._turnTimeout) {
+            clearTimeout(this._turnTimeout);
+            this._turnTimeout = null;
+        }
+    }
+
+    showToast(message) {
+        // Use statusText area for toast-like messages
+        this.el.statusText.textContent = message;
+        this.el.statusText.className = 'check';
+        setTimeout(() => {
+            if (this.el.statusText.textContent === message) {
+                this.el.statusText.textContent = '';
+                this.el.statusText.className = '';
+            }
+        }, 3000);
     }
 
     init() {
@@ -93,6 +115,10 @@ export class UI {
             // Captured panels
             capturedLeft: document.getElementById('captured-left'),
             capturedRight: document.getElementById('captured-right'),
+            // Draw offer modal
+            drawOfferModal: document.getElementById('draw-offer-modal'),
+            btnAcceptDraw: document.getElementById('btn-accept-draw'),
+            btnDeclineDraw: document.getElementById('btn-decline-draw'),
             // Dark chess menu
             btnDcPvp: document.getElementById('btn-dc-pvp'),
             btnDcPva: document.getElementById('btn-dc-pva'),
@@ -162,45 +188,34 @@ export class UI {
     // === Login Events ===
 
     bindLoginEvents() {
-        this.el.btnLogin?.addEventListener('click', () => this.doLogin());
-        this.el.btnRegister?.addEventListener('click', () => this.doRegister());
+        this.el.btnLogin?.addEventListener('click', () => this.doAuth('login'));
+        this.el.btnRegister?.addEventListener('click', () => this.doAuth('register'));
         this.el.btnOffline?.addEventListener('click', () => this.showOfflineMenu());
 
         // Enter key on password field
         this.el.authPassword?.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') this.doLogin();
+            if (e.key === 'Enter') this.doAuth('login');
         });
     }
 
-    async doLogin() {
+    async doAuth(method) {
         const username = this.el.authUsername.value.trim();
         const password = this.el.authPassword.value;
         if (!username || !password) return;
         this.el.authError.textContent = '';
+        this.el.btnLogin.disabled = true;
+        this.el.btnRegister.disabled = true;
         try {
-            const data = await this.network.login(username, password);
+            const data = await this.network[method](username, password);
             this.currentUser = data.user;
             this.network.connect(data.token);
             this.updateLobbyInfo();
             this.showLobby();
         } catch (err) {
             this.el.authError.textContent = err.message;
-        }
-    }
-
-    async doRegister() {
-        const username = this.el.authUsername.value.trim();
-        const password = this.el.authPassword.value;
-        if (!username || !password) return;
-        this.el.authError.textContent = '';
-        try {
-            const data = await this.network.register(username, password);
-            this.currentUser = data.user;
-            this.network.connect(data.token);
-            this.updateLobbyInfo();
-            this.showLobby();
-        } catch (err) {
-            this.el.authError.textContent = err.message;
+        } finally {
+            this.el.btnLogin.disabled = false;
+            this.el.btnRegister.disabled = false;
         }
     }
 
@@ -259,65 +274,97 @@ export class UI {
     async showLeaderboard() {
         try {
             const data = await this.network.fetchLeaderboard();
-            this.el.leaderboardTable.innerHTML = `
-                <thead><tr><th>#</th><th>玩家</th><th>ELO</th><th>勝</th><th>負</th><th>和</th></tr></thead>
-                <tbody>${data.map((u, i) => `
-                    <tr><td>${i + 1}</td><td>${u.username}</td><td>${u.elo}</td>
-                    <td>${u.wins}</td><td>${u.losses}</td><td>${u.draws}</td></tr>
-                `).join('')}</tbody>`;
+            const table = document.createElement('table');
+            const thead = document.createElement('thead');
+            thead.innerHTML = '<tr><th>#</th><th>玩家</th><th>ELO</th><th>勝</th><th>負</th><th>和</th></tr>';
+            table.appendChild(thead);
+            const tbody = document.createElement('tbody');
+            for (let i = 0; i < data.length; i++) {
+                const u = data[i];
+                const tr = document.createElement('tr');
+                for (const val of [i + 1, u.username, u.elo, u.wins, u.losses, u.draws]) {
+                    const td = document.createElement('td');
+                    td.textContent = val;
+                    tr.appendChild(td);
+                }
+                tbody.appendChild(tr);
+            }
+            table.appendChild(tbody);
+            this.el.leaderboardTable.innerHTML = '';
+            this.el.leaderboardTable.appendChild(table);
             this.el.leaderboardModal.classList.add('show');
         } catch (err) {
-            alert(err.message);
+            this.showToast(err.message);
         }
     }
 
     async showHistory() {
         try {
             const data = await this.network.fetchHistory();
-            let html = '<h3>對局紀錄</h3>';
+            const container = document.createElement('div');
+            const h3 = document.createElement('h3');
+            h3.textContent = '對局紀錄';
+            container.appendChild(h3);
             if (data.length === 0) {
-                html += '<p>尚無對局紀錄</p>';
+                const p = document.createElement('p');
+                p.textContent = '尚無對局紀錄';
+                container.appendChild(p);
             } else {
-                html += '<div class="history-list">';
+                const list = document.createElement('div');
+                list.className = 'history-list';
                 for (const g of data) {
                     const result = g.winner_side === null ? '和棋' :
                         ((g.winner_side === 'red' && g.red_user === this.currentUser.username) ||
                          (g.winner_side === 'black' && g.black_user === this.currentUser.username)) ? '勝' : '負';
                     const cls = result === '勝' ? 'win' : result === '負' ? 'loss' : 'draw';
-                    html += `<div class="history-item ${cls}">
-                        <span class="history-result">${result}</span>
-                        <span>${g.red_user} vs ${g.black_user}</span>
-                        <span>${g.move_count}手 · ${g.reason}</span>
-                    </div>`;
+                    const item = document.createElement('div');
+                    item.className = `history-item ${cls}`;
+                    const resultSpan = document.createElement('span');
+                    resultSpan.className = 'history-result';
+                    resultSpan.textContent = result;
+                    const playersSpan = document.createElement('span');
+                    playersSpan.textContent = `${g.red_user} vs ${g.black_user}`;
+                    const infoSpan = document.createElement('span');
+                    infoSpan.textContent = `${g.move_count}手 · ${g.reason}`;
+                    item.append(resultSpan, playersSpan, infoSpan);
+                    list.appendChild(item);
                 }
-                html += '</div>';
+                container.appendChild(list);
             }
-            this.el.leaderboardTable.innerHTML = html;
+            this.el.leaderboardTable.innerHTML = '';
+            this.el.leaderboardTable.appendChild(container);
             this.el.leaderboardModal.classList.add('show');
         } catch (err) {
-            alert(err.message);
+            this.showToast(err.message);
         }
     }
 
     updateRoomList(rooms) {
         if (!this.el.roomList) return;
+        this.el.roomList.innerHTML = '';
         if (rooms.length === 0) {
-            this.el.roomList.innerHTML = '<p class="empty-list">目前沒有可加入的房間</p>';
+            const p = document.createElement('p');
+            p.className = 'empty-list';
+            p.textContent = '目前沒有可加入的房間';
+            this.el.roomList.appendChild(p);
             return;
         }
-        this.el.roomList.innerHTML = rooms.map(r => `
-            <div class="room-card" data-code="${r.code}">
-                <span class="room-host">${r.hostName}</span>
-                <span class="room-code-display">${r.code}</span>
-                <button class="ctrl-btn room-join-btn" data-code="${r.code}">加入</button>
-            </div>
-        `).join('');
-
-        this.el.roomList.querySelectorAll('.room-join-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                this.network.joinRoom(btn.dataset.code);
-            });
-        });
+        for (const r of rooms) {
+            const card = document.createElement('div');
+            card.className = 'room-card';
+            const host = document.createElement('span');
+            host.className = 'room-host';
+            host.textContent = r.hostName;
+            const code = document.createElement('span');
+            code.className = 'room-code-display';
+            code.textContent = r.code;
+            const btn = document.createElement('button');
+            btn.className = 'ctrl-btn room-join-btn';
+            btn.textContent = '加入';
+            btn.addEventListener('click', () => this.network.joinRoom(r.code));
+            card.append(host, code, btn);
+            this.el.roomList.appendChild(card);
+        }
     }
 
     // === Offline Menu Events ===
@@ -401,6 +448,7 @@ export class UI {
     }
 
     startLocalGame() {
+        this.clearPendingTimeouts();
         this.isTurnPaused = false;
         this.showGame();
         this.board.refresh();
@@ -428,6 +476,15 @@ export class UI {
         this.el.btnDrawOffer?.addEventListener('click', () => {
             this.network.offerDraw();
             this.el.statusText.textContent = '已提出和棋請求...';
+        });
+
+        this.el.btnAcceptDraw?.addEventListener('click', () => {
+            this.el.drawOfferModal?.classList.remove('show');
+            this.network.respondDraw(true);
+        });
+        this.el.btnDeclineDraw?.addEventListener('click', () => {
+            this.el.drawOfferModal?.classList.remove('show');
+            this.network.respondDraw(false);
         });
 
         this.el.modalNewGame?.addEventListener('click', () => {
@@ -512,9 +569,10 @@ export class UI {
 
         // 1 second pause between turns
         if (!result.gameOver) {
-            setTimeout(() => {
+            this._turnTimeout = setTimeout(() => {
+                this._turnTimeout = null;
                 this.isTurnPaused = false;
-                if (this.game.gameMode === 'pva' && this.game.isAITurn()) {
+                if (this.game.gameMode === 'pva' && !this.game.isAIThinking && this.game.isAITurn()) {
                     this.triggerAIMove();
                 }
             }, 1000);
@@ -554,12 +612,13 @@ export class UI {
         this.el.moveCount.textContent = this.game.moveCount;
     }
 
-    addMoveToHistory(result) {
+    addMoveToHistory(result, moveCount) {
+        const count = moveCount !== undefined ? moveCount : this.game.moveCount;
         const entry = document.createElement('span');
         entry.className = 'move-entry';
         const num = document.createElement('span');
         num.className = 'move-num';
-        num.textContent = `${this.game.moveCount}.`;
+        num.textContent = `${count}.`;
         const text = document.createTextNode(result.notation);
         entry.appendChild(num);
         entry.appendChild(text);
@@ -700,6 +759,7 @@ export class UI {
     }
 
     onBack() {
+        this.clearPendingTimeouts();
         if (this.isDarkChessMode) {
             this.isDarkChessMode = false;
             this.el.gameScreen.classList.remove('dark-chess');
@@ -738,7 +798,10 @@ export class UI {
         if (!this.el.chatMessages) return;
         const msg = document.createElement('div');
         msg.className = 'chat-msg';
-        msg.innerHTML = `<strong>${from}:</strong> ${text}`;
+        const strong = document.createElement('strong');
+        strong.textContent = `${from}: `;
+        msg.appendChild(strong);
+        msg.appendChild(document.createTextNode(text));
         this.el.chatMessages.appendChild(msg);
         this.el.chatMessages.scrollTop = this.el.chatMessages.scrollHeight;
     }
@@ -761,7 +824,7 @@ export class UI {
         });
 
         net.on('roomError', (data) => {
-            alert(data.message);
+            this.showToast(data.message);
         });
 
         net.on('matchWaiting', () => {
@@ -826,6 +889,7 @@ export class UI {
                 this.el.disconnectOverlay.style.display = 'flex';
                 let remaining = Math.floor(data.timeout / 1000);
                 this.el.disconnectTimer.textContent = remaining;
+                if (this._disconnectInterval) clearInterval(this._disconnectInterval);
                 this._disconnectInterval = setInterval(() => {
                     remaining--;
                     if (this.el.disconnectTimer) {
@@ -844,10 +908,8 @@ export class UI {
         });
 
         net.on('drawOffered', () => {
-            if (confirm('對手提出和棋，是否接受？')) {
-                this.network.respondDraw(true);
-            } else {
-                this.network.respondDraw(false);
+            if (this.el.drawOfferModal) {
+                this.el.drawOfferModal.classList.add('show');
             }
         });
 
@@ -898,6 +960,7 @@ export class UI {
     // === Dark Chess Mode ===
 
     startDarkChessGame(mode) {
+        this.clearPendingTimeouts();
         this.isDarkChessMode = true;
         this.isSpectating = false;
         this.isTurnPaused = false;
@@ -970,16 +1033,17 @@ export class UI {
                 this.el.statusText.className = '';
             }
 
-            this.addDarkChessMoveToHistory(result);
+            this.addMoveToHistory(result, this.darkGame.moveCount);
             this.updateDarkChessTurnDisplay();
 
             if (result.gameOver) {
                 this.showGameOver(result.winner, result.reason);
                 this.isTurnPaused = false;
             } else {
-                setTimeout(() => {
+                this._turnTimeout = setTimeout(() => {
+                    this._turnTimeout = null;
                     this.isTurnPaused = false;
-                    if (this.darkGame.isAITurn()) {
+                    if (this.darkGame && !this.darkGame.isAIThinking && this.darkGame.isAITurn()) {
                         this.triggerDarkChessAI();
                     }
                 }, 800);
@@ -1004,7 +1068,7 @@ export class UI {
             this.addCapturedPiece(result.move.captured, result.prevSide);
         }
 
-        this.addDarkChessMoveToHistory(result);
+        this.addMoveToHistory(result, this.darkGame.moveCount);
         this.updateDarkChessTurnDisplay();
 
         if (result.gameOver) {
@@ -1013,9 +1077,10 @@ export class UI {
         } else {
             this.el.statusText.textContent = '';
             this.el.statusText.className = '';
-            setTimeout(() => {
+            this._turnTimeout = setTimeout(() => {
+                this._turnTimeout = null;
                 this.isTurnPaused = false;
-                if (this.darkGame.isAITurn()) {
+                if (this.darkGame && !this.darkGame.isAIThinking && this.darkGame.isAITurn()) {
                     this.triggerDarkChessAI();
                 }
             }, 1000);
@@ -1068,19 +1133,6 @@ export class UI {
             this.el.playerDot.className = `player-dot ${isRed ? 'red' : 'black'}`;
         }
         this.el.moveCount.textContent = this.darkGame.moveCount;
-    }
-
-    addDarkChessMoveToHistory(result) {
-        const entry = document.createElement('span');
-        entry.className = 'move-entry';
-        const num = document.createElement('span');
-        num.className = 'move-num';
-        num.textContent = `${this.darkGame.moveCount}.`;
-        const text = document.createTextNode(result.notation);
-        entry.appendChild(num);
-        entry.appendChild(text);
-        this.el.moveHistory.appendChild(entry);
-        this.el.moveHistory.parentElement.scrollTop = this.el.moveHistory.parentElement.scrollHeight;
     }
 
     onDarkChessUndo() {

@@ -10,6 +10,7 @@ export class Board extends BoardLogic {
         this.canvasElement = null;
         this.onCellClick = null;
         this.isAnimating = false;
+        this._resizeHandler = null;
     }
 
     clone() {
@@ -53,7 +54,9 @@ export class Board extends BoardLogic {
         }
 
         // Don't draw immediately - board may be hidden. Draw on first refresh().
-        window.addEventListener('resize', () => this.refresh());
+        if (this._resizeHandler) window.removeEventListener('resize', this._resizeHandler);
+        this._resizeHandler = () => this.refresh();
+        window.addEventListener('resize', this._resizeHandler);
     }
 
     // Call this whenever the board becomes visible or needs redrawing
@@ -299,7 +302,11 @@ export class Board extends BoardLogic {
         });
 
         // Clean up after animation completes
+        let animDone = false;
         const onEnd = () => {
+            if (animDone) return;
+            animDone = true;
+            clearTimeout(fallbackTimer);
             pieceEl.style.transition = '';
             pieceEl.style.transform = '';
             pieceEl.style.willChange = '';
@@ -307,7 +314,7 @@ export class Board extends BoardLogic {
         };
         pieceEl.addEventListener('transitionend', onEnd, { once: true });
         // Fallback in case transitionend doesn't fire
-        setTimeout(onEnd, 450);
+        const fallbackTimer = setTimeout(onEnd, 450);
 
         // Update piece map
         this.pieceElements.delete(fromKey);

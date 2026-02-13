@@ -10,6 +10,7 @@ export class DarkBoard extends DarkBoardLogic {
         this.canvasElement = null;
         this.onCellClick = null;
         this.isAnimating = false;
+        this._resizeHandler = null;
     }
 
     createBoardDOM(container) {
@@ -37,7 +38,9 @@ export class DarkBoard extends DarkBoardLogic {
             }
         }
 
-        window.addEventListener('resize', () => this.refresh());
+        if (this._resizeHandler) window.removeEventListener('resize', this._resizeHandler);
+        this._resizeHandler = () => this.refresh();
+        window.addEventListener('resize', this._resizeHandler);
     }
 
     refresh() {
@@ -246,14 +249,18 @@ export class DarkBoard extends DarkBoardLogic {
             });
         });
 
+        let animDone = false;
         const onEnd = () => {
+            if (animDone) return;
+            animDone = true;
+            clearTimeout(fallbackTimer);
             pieceEl.style.transition = '';
             pieceEl.style.transform = '';
             pieceEl.style.willChange = '';
             this.isAnimating = false;
         };
         pieceEl.addEventListener('transitionend', onEnd, { once: true });
-        setTimeout(onEnd, 450);
+        const fallbackTimer = setTimeout(onEnd, 450);
 
         this.pieceElements.delete(fromKey);
         this.pieceElements.set(toKey, pieceEl);

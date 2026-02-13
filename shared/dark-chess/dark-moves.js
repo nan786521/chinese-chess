@@ -2,7 +2,7 @@ import { DC_ROWS, DC_COLS, DC_RANKS } from '../constants.js';
 
 // Check if attacker can capture defender based on rank
 export function canCapture(attacker, defender) {
-    // Cannon captures are handled via cannonCanCapture (jump mechanic)
+    // Cannon captures via jump mechanic, not rank-based
     if (attacker.type === 'cannon') return false;
 
     const attackRank = DC_RANKS[attacker.type];
@@ -15,32 +15,6 @@ export function canCapture(attacker, defender) {
 
     // Higher or equal rank can capture (lower number = higher rank)
     return attackRank <= defendRank;
-}
-
-// Check if cannon at (fromRow,fromCol) can jump-capture target at (toRow,toCol)
-export function cannonCanCapture(board, fromRow, fromCol, toRow, toCol) {
-    // Must be in a straight line
-    if (fromRow !== toRow && fromCol !== toCol) return false;
-    // Must not be the same cell
-    if (fromRow === toRow && fromCol === toCol) return false;
-
-    let count = 0;
-    if (fromRow === toRow) {
-        const minC = Math.min(fromCol, toCol);
-        const maxC = Math.max(fromCol, toCol);
-        if (maxC - minC < 2) return false; // need at least 1 cell between
-        for (let c = minC + 1; c < maxC; c++) {
-            if (board.getPiece(fromRow, c)) count++;
-        }
-    } else {
-        const minR = Math.min(fromRow, toRow);
-        const maxR = Math.max(fromRow, toRow);
-        if (maxR - minR < 2) return false; // need at least 1 cell between
-        for (let r = minR + 1; r < maxR; r++) {
-            if (board.getPiece(r, fromCol)) count++;
-        }
-    }
-    return count === 1;
 }
 
 // Generate all legal actions for the current player
