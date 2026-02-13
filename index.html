@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>中國象棋</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&family=Noto+Serif+TC:wght@700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div id="app-container">
+
+        <!-- Login Screen -->
+        <div id="login-screen">
+            <h1>中國象棋</h1>
+            <p class="subtitle">Chinese Chess Online</p>
+            <div class="auth-form">
+                <input type="text" id="auth-username" placeholder="用戶名" maxlength="20" autocomplete="username">
+                <input type="password" id="auth-password" placeholder="密碼" autocomplete="current-password">
+                <div class="auth-buttons">
+                    <button class="menu-btn" id="btn-login">登入</button>
+                    <button class="menu-btn outline" id="btn-register">註冊</button>
+                </div>
+                <p id="auth-error" class="error-text"></p>
+                <button class="menu-btn outline" id="btn-offline" style="margin-top:15px">離線模式</button>
+            </div>
+        </div>
+
+        <!-- Lobby Screen -->
+        <div id="lobby-screen" style="display:none">
+            <div class="lobby-header">
+                <div class="lobby-user-info">
+                    <span id="lobby-username" class="lobby-name"></span>
+                    <span id="lobby-elo" class="lobby-elo-badge"></span>
+                </div>
+                <button class="ctrl-btn" id="btn-logout">登出</button>
+            </div>
+            <h2 class="lobby-title">線上大廳</h2>
+            <div class="lobby-actions">
+                <button class="menu-btn" id="btn-create-room">建立房間</button>
+                <div class="join-room-row">
+                    <input type="text" id="room-code-input" placeholder="輸入房間代碼" maxlength="6">
+                    <button class="menu-btn" id="btn-join-room">加入</button>
+                </div>
+                <button class="menu-btn" id="btn-quick-match">快速配對</button>
+                <button class="menu-btn outline" id="btn-offline-mode">離線模式</button>
+            </div>
+            <div class="lobby-room-list">
+                <h3>等待中的房間</h3>
+                <div id="room-list"></div>
+            </div>
+            <div class="lobby-footer">
+                <button class="ctrl-btn" id="btn-leaderboard">排行榜</button>
+                <button class="ctrl-btn" id="btn-history">對局紀錄</button>
+            </div>
+        </div>
+
+        <!-- Waiting Screen -->
+        <div id="waiting-screen" style="display:none">
+            <div class="waiting-content">
+                <h2>等待對手加入...</h2>
+                <div class="waiting-spinner"></div>
+                <p>房間代碼</p>
+                <span id="waiting-room-code" class="room-code-big"></span>
+                <button class="menu-btn outline" id="btn-cancel-wait" style="margin-top:20px">取消</button>
+            </div>
+        </div>
+
+        <!-- Offline Menu Screen -->
+        <div id="menu-screen" style="display:none">
+            <h1>中國象棋</h1>
+            <p class="subtitle">離線模式</p>
+            <div class="menu-section">
+                <div class="menu-buttons">
+                    <button class="menu-btn" id="btn-pvp">雙人對弈</button>
+                    <button class="menu-btn outline" id="btn-pva">人機對弈</button>
+                </div>
+            </div>
+            <div class="menu-section">
+                <div class="side-selector" id="side-selector">
+                    <button class="side-btn red-side active" data-side="red">執紅先行</button>
+                    <button class="side-btn black-side" data-side="black">執黑後行</button>
+                </div>
+                <div class="difficulty-selector" id="difficulty-selector">
+                    <button class="diff-btn" data-diff="beginner">入門</button>
+                    <button class="diff-btn" data-diff="easy">初級</button>
+                    <button class="diff-btn active" data-diff="medium">中級</button>
+                    <button class="diff-btn" data-diff="hard">高級</button>
+                    <button class="diff-btn" data-diff="master">大師</button>
+                </div>
+                <button class="menu-btn start-ai-btn" id="btn-start-ai">開始對弈</button>
+            </div>
+            <div class="menu-divider"></div>
+            <div class="menu-section">
+                <h3 class="menu-section-title">暗棋模式</h3>
+                <div class="menu-buttons">
+                    <button class="menu-btn" id="btn-dc-pvp">暗棋雙人</button>
+                    <button class="menu-btn outline" id="btn-dc-pva">暗棋人機</button>
+                </div>
+            </div>
+            <div class="menu-section">
+                <div class="difficulty-selector" id="dc-difficulty-selector">
+                    <button class="diff-btn" data-diff="beginner">入門</button>
+                    <button class="diff-btn" data-diff="easy">初級</button>
+                    <button class="diff-btn active" data-diff="medium">中級</button>
+                    <button class="diff-btn" data-diff="hard">高級</button>
+                </div>
+                <button class="menu-btn start-ai-btn" id="btn-dc-start-ai">開始暗棋</button>
+            </div>
+            <button class="ctrl-btn" id="btn-back-to-lobby" style="margin-top:20px">返回大廳</button>
+        </div>
+
+        <!-- Game Screen -->
+        <div id="game-screen" style="display:none">
+            <div class="game-header">
+                <div class="player-indicator">
+                    <span class="player-dot" id="player-dot"></span>
+                    <span id="current-player">紅方回合</span>
+                </div>
+                <div id="opponent-info" class="opponent-info" style="display:none"></div>
+                <div class="move-counter">
+                    第 <span id="move-count">0</span> 手
+                </div>
+            </div>
+
+            <div id="board-area">
+                <div id="captured-left" class="captured-panel"></div>
+                <div id="board-container">
+                    <div id="chess-board"></div>
+                </div>
+                <div id="captured-right" class="captured-panel"></div>
+            </div>
+
+            <div id="game-status"></div>
+
+            <div class="game-controls">
+                <button class="ctrl-btn" id="btn-undo">悔棋</button>
+                <button class="ctrl-btn" id="btn-resign" style="display:none">認輸</button>
+                <button class="ctrl-btn" id="btn-draw-offer" style="display:none">提和</button>
+                <button class="ctrl-btn" id="btn-new-game">新局</button>
+                <button class="ctrl-btn" id="btn-back">返回</button>
+            </div>
+
+            <!-- Chat Panel -->
+            <div id="chat-panel" class="chat-panel" style="display:none">
+                <h4>聊天</h4>
+                <div id="chat-messages" class="chat-messages"></div>
+                <div class="chat-input-row">
+                    <input type="text" id="chat-input" placeholder="輸入訊息..." maxlength="200">
+                    <button class="ctrl-btn" id="btn-send-chat">送出</button>
+                </div>
+            </div>
+
+            <div class="move-history-container">
+                <h4>走棋紀錄</h4>
+                <div id="move-history"></div>
+            </div>
+        </div>
+
+        <!-- Disconnect Overlay -->
+        <div id="disconnect-overlay" class="disconnect-overlay" style="display:none">
+            <div class="disconnect-content">
+                <h3>對手已斷線</h3>
+                <p>等待重新連線... <span id="disconnect-timer">30</span> 秒</p>
+            </div>
+        </div>
+
+        <!-- Game Over Modal -->
+        <div class="modal-overlay" id="game-over-modal">
+            <div class="modal-content">
+                <h2 id="modal-title">遊戲結束</h2>
+                <p id="modal-message"></p>
+                <div class="modal-buttons">
+                    <button class="menu-btn" id="modal-new-game">再來一局</button>
+                    <button class="menu-btn outline" id="modal-back">返回</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Leaderboard Modal -->
+        <div class="modal-overlay" id="leaderboard-modal">
+            <div class="modal-content wide">
+                <div id="leaderboard-table"></div>
+                <button class="menu-btn outline" id="btn-close-leaderboard" style="margin-top:15px">關閉</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>
