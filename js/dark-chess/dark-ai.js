@@ -2,6 +2,13 @@ import { generateDarkChessMoves } from '../../shared/dark-chess/dark-moves.js';
 import { checkDarkChessGameOver } from '../../shared/dark-chess/dark-rules.js';
 import { DC_PIECE_VALUES, DC_RANKS, RED, BLACK } from '../../shared/constants.js';
 
+const DC_AI_CONFIG = {
+    beginner: { depth: 1, randomness: 80 },
+    easy:     { depth: 2, randomness: 30 },
+    medium:   { depth: 3, randomness: 0 },
+    hard:     { depth: 4, randomness: 0 },
+};
+
 export class DarkChessAI {
     constructor() {
         this.difficulty = 'medium';
@@ -15,163 +22,52 @@ export class DarkChessAI {
         const actions = generateDarkChessMoves(board, side);
         if (actions.length === 0) return null;
 
-        switch (this.difficulty) {
-            case 'beginner': return this.randomAction(actions);
-            case 'easy': return this.greedyAction(board, actions, side);
-            case 'medium': return this.evaluatedAction(board, actions, side, movesSinceCapture);
-            case 'hard':
-            case 'master': return this.searchAction(board, actions, side, movesSinceCapture);
-            default: return this.evaluatedAction(board, actions, side, movesSinceCapture);
+        if (this.difficulty === 'beginner') {
+            return this.randomAction(actions);
         }
+
+        const config = DC_AI_CONFIG[this.difficulty] || DC_AI_CONFIG.medium;
+        return this.searchAction(board, actions, side, movesSinceCapture, config);
     }
 
     randomAction(actions) {
         return actions[Math.floor(Math.random() * actions.length)];
     }
 
-    greedyAction(board, actions, side) {
-        let bestScore = -Infinity;
-        let bestActions = [];
-
-        for (const action of actions) {
-            let score = 0;
-
-            if (action.action === 'capture') {
-                const target = board.getPiece(action.toRow, action.toCol);
-                if (target) {
-                    score = DC_PIECE_VALUES[target.type] || 100;
-                    // Bonus if capturing with a lower-value piece
-                    const attacker = board.getPiece(action.fromRow, action.fromCol);
-                    if (attacker) {
-                        const risk = DC_PIECE_VALUES[attacker.type] || 100;
-                        score += (500 - risk) * 0.1;
-                    }
-                }
-            } else if (action.action === 'flip') {
-                score = 10 + Math.random() * 5;
-            } else {
-                score = 5 + Math.random() * 5;
-            }
-
-            // Add randomness
-            score += Math.random() * 30;
-
-            if (score > bestScore) {
-                bestScore = score;
-                bestActions = [action];
-            } else if (score === bestScore) {
-                bestActions.push(action);
-            }
-        }
-
-        return bestActions[Math.floor(Math.random() * bestActions.length)];
-    }
-
-    evaluatedAction(board, actions, side, movesSinceCapture) {
+    searchAction(board, actions, side, movesSinceCapture, config) {
         let bestScore = -Infinity;
         let bestAction = actions[0];
-
-        for (const action of actions) {
-            const score = this.evaluateAction(board, action, side, movesSinceCapture);
-            if (score > bestScore) {
-                bestScore = score;
-                bestAction = action;
-            }
-        }
-
-        return bestAction;
-    }
-
-    evaluateAction(board, action, side, movesSinceCapture) {
-        if (action.action === 'flip') {
-            return this.evaluateFlip(board, action, side);
-        }
-
-        // Simulate the move
-        const clone = board.clone();
-        const captured = clone.movePiece(action.fromRow, action.fromCol, action.toRow, action.toCol);
-        const newMSC = captured ? 0 : movesSinceCapture + 1;
-
         const oppSide = side === RED ? BLACK : RED;
 
-        // Check if this move wins
-        const gameState = checkDarkChessGameOver(clone, oppSide, newMSC);
-        if (gameState.over && gameState.winner === side) return 10000;
-        if (gameState.over && gameState.winner === oppSide) return -10000;
-
-        let score = this.evaluate(clone, side);
-
-        // Capture bonus
-        if (captured) {
-            score += DC_PIECE_VALUES[captured.type] * 2;
-        }
-
-        // Check if our piece is now in danger
-        const oppMoves = generateDarkChessMoves(clone, oppSide);
-        for (const om of oppMoves) {
-            if (om.action === 'capture' && om.toRow === action.toRow && om.toCol === action.toCol) {
-                const attacker = board.getPiece(action.fromRow, action.fromCol);
-                if (attacker) {
-                    score -= DC_PIECE_VALUES[attacker.type] * 1.5;
-                }
-                break;
-            }
-        }
-
-        return score + Math.random() * 5;
-    }
-
-    evaluateFlip(board, action, side) {
-        // Estimate expected value of flipping
-        // Count remaining unrevealed pieces to guess what we might get
-        const remaining = this.getRemainingHidden(board);
-        const totalHidden = remaining.red + remaining.black;
-        if (totalHidden === 0) return -100;
-
-        const oppSide = side === RED ? BLACK : RED;
-        const friendlyChance = remaining[side] / totalHidden;
-        const enemyChance = remaining[oppSide] / totalHidden;
-
-        // Flipping is somewhat neutral: could help or hurt
-        let score = 15; // base value for information
-
-        // Slightly prefer flipping when we have fewer revealed pieces
-        const myRevealed = board.countRevealedPieces(side);
-        const oppRevealed = board.countRevealedPieces(oppSide);
-        if (myRevealed < oppRevealed) {
-            score += 10;
-        }
-
-        // Prefer flipping when friendly chance is higher
-        score += (friendlyChance - enemyChance) * 20;
-
-        // Check if nearby own pieces could be threatened by a reveal
-        // (simplified: just add randomness)
-        score += Math.random() * 10;
-
-        return score;
-    }
-
-    searchAction(board, actions, side, movesSinceCapture) {
-        const depth = this.difficulty === 'master' ? 3 : 2;
-        let bestScore = -Infinity;
-        let bestAction = actions[0];
+        // Order: captures first (by value), then moves, then flips
+        this.orderActions(board, actions);
 
         for (const action of actions) {
             let score;
+
             if (action.action === 'flip') {
                 score = this.evaluateFlip(board, action, side);
             } else {
-                const clone = board.clone();
-                const captured = clone.movePiece(action.fromRow, action.fromCol, action.toRow, action.toCol);
+                const captured = board.movePiece(action.fromRow, action.fromCol, action.toRow, action.toCol);
                 const newMSC = captured ? 0 : movesSinceCapture + 1;
-                const oppSide = side === RED ? BLACK : RED;
 
-                score = -this.negamax(clone, depth - 1, -Infinity, Infinity, oppSide, newMSC);
-
-                if (captured) {
-                    score += DC_PIECE_VALUES[captured.type];
+                const gameState = checkDarkChessGameOver(board, oppSide, newMSC);
+                if (gameState.over && gameState.winner === side) {
+                    score = 50000;
+                } else if (gameState.over && gameState.winner === oppSide) {
+                    score = -50000;
+                } else if (gameState.over) {
+                    score = 0;
+                } else {
+                    score = -this.negamax(board, config.depth - 1, -Infinity, Infinity, oppSide, newMSC);
                 }
+
+                board.undoMove({ fromRow: action.fromRow, fromCol: action.fromCol, toRow: action.toRow, toCol: action.toCol, captured });
+            }
+
+            // Add randomness for lower difficulties
+            if (config.randomness > 0) {
+                score += Math.floor(Math.random() * config.randomness * 2) - config.randomness;
             }
 
             if (score > bestScore) {
@@ -187,9 +83,9 @@ export class DarkChessAI {
         const oppSide = side === RED ? BLACK : RED;
         const gameState = checkDarkChessGameOver(board, side, movesSinceCapture);
         if (gameState.over) {
-            if (gameState.winner === side) return 10000 + depth;
-            if (gameState.winner === oppSide) return -10000 - depth;
-            return 0; // draw
+            if (gameState.winner === side) return 50000 + depth;
+            if (gameState.winner === oppSide) return -50000 - depth;
+            return 0;
         }
 
         if (depth <= 0) {
@@ -197,23 +93,21 @@ export class DarkChessAI {
         }
 
         const actions = generateDarkChessMoves(board, side);
+        this.orderActions(board, actions);
+
         let best = -Infinity;
 
         for (const action of actions) {
             let score;
+
             if (action.action === 'flip') {
-                // For search, estimate flip value without actually flipping
-                score = 0;
-                continue;
-            }
-
-            const clone = board.clone();
-            const captured = clone.movePiece(action.fromRow, action.fromCol, action.toRow, action.toCol);
-            const newMSC = captured ? 0 : movesSinceCapture + 1;
-            score = -this.negamax(clone, depth - 1, -beta, -alpha, oppSide, newMSC);
-
-            if (captured) {
-                score += DC_PIECE_VALUES[captured.type] * 0.1;
+                // Estimate flip value without modifying board
+                score = this.evaluateFlip(board, action, side) * 0.5;
+            } else {
+                const captured = board.movePiece(action.fromRow, action.fromCol, action.toRow, action.toCol);
+                const newMSC = captured ? 0 : movesSinceCapture + 1;
+                score = -this.negamax(board, depth - 1, -beta, -alpha, oppSide, newMSC);
+                board.undoMove({ fromRow: action.fromRow, fromCol: action.fromCol, toRow: action.toRow, toCol: action.toCol, captured });
             }
 
             if (score > best) best = score;
@@ -228,7 +122,7 @@ export class DarkChessAI {
         const oppSide = side === RED ? BLACK : RED;
         let score = 0;
 
-        // Material count (only revealed pieces)
+        // Material count (revealed pieces)
         for (let r = 0; r < 4; r++) {
             for (let c = 0; c < 8; c++) {
                 const p = board.getPiece(r, c);
@@ -243,13 +137,83 @@ export class DarkChessAI {
         }
 
         // Mobility bonus
-        const myMoves = generateDarkChessMoves(board, side)
-            .filter(a => a.action !== 'flip');
-        const oppMoves = generateDarkChessMoves(board, oppSide)
-            .filter(a => a.action !== 'flip');
-        score += (myMoves.length - oppMoves.length) * 5;
+        const myMoves = generateDarkChessMoves(board, side);
+        const oppMoves = generateDarkChessMoves(board, oppSide);
+        const myNonFlip = myMoves.filter(a => a.action !== 'flip').length;
+        const oppNonFlip = oppMoves.filter(a => a.action !== 'flip').length;
+        score += (myNonFlip - oppNonFlip) * 8;
+
+        // Capture threat: bonus if we can capture something
+        for (const m of myMoves) {
+            if (m.action === 'capture') {
+                const target = board.getPiece(m.toRow, m.toCol);
+                if (target) score += (DC_PIECE_VALUES[target.type] || 100) * 0.1;
+            }
+        }
+
+        // Safety: penalty if opponent can capture our pieces
+        for (const m of oppMoves) {
+            if (m.action === 'capture') {
+                const target = board.getPiece(m.toRow, m.toCol);
+                if (target) score -= (DC_PIECE_VALUES[target.type] || 100) * 0.15;
+            }
+        }
 
         return score;
+    }
+
+    evaluateFlip(board, action, side) {
+        const remaining = this.getRemainingHidden(board);
+        const totalHidden = remaining.red + remaining.black;
+        if (totalHidden === 0) return -100;
+
+        const oppSide = side === RED ? BLACK : RED;
+        const friendlyChance = remaining[side] / totalHidden;
+        const enemyChance = remaining[oppSide] / totalHidden;
+
+        let score = 15;
+
+        // Prefer flipping when we have fewer revealed pieces
+        const myRevealed = board.countRevealedPieces(side);
+        const oppRevealed = board.countRevealedPieces(oppSide);
+        if (myRevealed < oppRevealed) score += 15;
+
+        // Prefer flipping when friendly chance is higher
+        score += (friendlyChance - enemyChance) * 30;
+
+        // Check adjacent threats: avoid flipping next to enemy pieces
+        const { row, col } = action;
+        const deltas = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+        let adjacentEnemies = 0;
+        for (const [dr, dc] of deltas) {
+            const nr = row + dr, nc = col + dc;
+            if (board.isInBoard(nr, nc)) {
+                const adj = board.getPiece(nr, nc);
+                if (adj && adj.revealed && adj.side === oppSide) {
+                    adjacentEnemies++;
+                }
+            }
+        }
+        score -= adjacentEnemies * 10;
+
+        return score;
+    }
+
+    orderActions(board, actions) {
+        actions.sort((a, b) => {
+            // Captures first (by victim value descending)
+            if (a.action === 'capture' && b.action !== 'capture') return -1;
+            if (a.action !== 'capture' && b.action === 'capture') return 1;
+            if (a.action === 'capture' && b.action === 'capture') {
+                const va = DC_PIECE_VALUES[board.getPiece(a.toRow, a.toCol)?.type] || 0;
+                const vb = DC_PIECE_VALUES[board.getPiece(b.toRow, b.toCol)?.type] || 0;
+                return vb - va;
+            }
+            // Moves before flips
+            if (a.action === 'move' && b.action === 'flip') return -1;
+            if (a.action === 'flip' && b.action === 'move') return 1;
+            return 0;
+        });
     }
 
     getRemainingHidden(board) {
