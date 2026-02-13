@@ -375,18 +375,23 @@ body {
     border-radius: 16px;
     padding: 16px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 20px);
+    overflow: hidden;
 }
 
-#game-screen.active { display: block; }
+#game-screen.active { display: flex; }
 
 .game-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     padding: 10px 14px;
-    margin-bottom: 10px;
+    margin-bottom: 6px;
     flex-wrap: wrap;
     gap: 6px;
+    flex-shrink: 0;
 }
 
 .player-indicator {
@@ -427,6 +432,8 @@ body {
     margin: 0 auto;
     max-width: 780px;
     width: 100%;
+    flex: 1;
+    min-height: 0;
 }
 
 .captured-panel {
@@ -547,11 +554,11 @@ body {
 }
 
 /* Status & Controls */
-#game-status { text-align: center; padding: 10px; font-size: 1.2rem; height: 42px; line-height: 22px; overflow: hidden; color: #444; font-weight: bold; }
+#game-status { text-align: center; padding: 10px; font-size: 1.2rem; height: 42px; line-height: 22px; overflow: hidden; color: #444; font-weight: bold; flex-shrink: 0; }
 #game-status.check { color: var(--red-color); font-weight: bold; }
 #game-status.pinned { color: #B8860B; font-weight: bold; }
 
-.game-controls { display: flex; justify-content: center; gap: 12px; padding: 12px 0; flex-wrap: wrap; }
+.game-controls { display: flex; justify-content: center; gap: 12px; padding: 8px 0; flex-wrap: wrap; flex-shrink: 0; }
 
 .ctrl-btn {
     padding: 10px 24px;
@@ -571,11 +578,14 @@ body {
 
 /* Move History */
 .move-history-container {
-    margin-top: 12px;
-    max-height: 130px;
+    margin-top: 8px;
+    height: 80px;
+    min-height: 80px;
+    max-height: 80px;
     overflow-y: auto;
     border-top: 2px solid #D4B87A;
-    padding-top: 10px;
+    padding-top: 8px;
+    flex-shrink: 0;
 }
 
 .move-history-container h4 { font-size: 1rem; color: #777; margin-bottom: 6px; }
@@ -586,9 +596,10 @@ body {
 
 /* ===== Chat Panel ===== */
 .chat-panel {
-    margin-top: 12px;
+    margin-top: 8px;
     border-top: 2px solid #D4B87A;
-    padding-top: 10px;
+    padding-top: 8px;
+    flex-shrink: 0;
 }
 
 .chat-panel h4 { font-size: 1rem; color: #777; margin-bottom: 6px; }
@@ -764,7 +775,7 @@ body {
     .auth-form input { width: 260px; }
     .auth-buttons .menu-btn { width: 120px; }
 
-    #game-screen { padding: 10px; border-radius: 12px; }
+    #game-screen { padding: 10px; border-radius: 12px; max-height: calc(100vh - 10px); }
     .game-header { padding: 6px 10px; }
     .player-indicator { font-size: 1.15rem; }
 
