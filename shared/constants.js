@@ -80,7 +80,7 @@ export const PIECE_VALUES = {
     king:     10000,
     rook:     900,
     cannon:   450,
-    horse:    400,
+    horse:    450,
     elephant: 200,
     advisor:  200,
     pawn:     100
