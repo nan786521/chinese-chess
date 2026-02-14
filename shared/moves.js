@@ -39,27 +39,103 @@ export function generateAllLegalMoves(board, side) {
 
 function wouldLeaveInCheck(board, fromRow, fromCol, toRow, toCol, side) {
     const captured = board.movePiece(fromRow, fromCol, toRow, toCol);
-    const illegal = kingsAreFacing(board) || isUnderAttack(board, side);
+    const kingPos = board.findKing(side);
+    const opponentSide = side === 'red' ? 'black' : 'red';
+    const illegal = !kingPos || isSquareAttacked(board, kingPos.row, kingPos.col, opponentSide);
     board.undoMove({ fromRow, fromCol, toRow, toCol, captured });
     return illegal;
+}
+
+// Fast targeted attack detection: checks if (row, col) is attacked by any piece of bySide.
+// Replaces the old approach of generating ALL opponent moves.
+function isSquareAttacked(board, row, col, bySide) {
+    // 1. Rook / King-facing / Cannon along rank and file
+    const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+    for (const [dr, dc] of directions) {
+        let r = row + dr, c = col + dc;
+        let jumped = false;
+        while (board.isInBoard(r, c)) {
+            const p = board.getPiece(r, c);
+            if (p) {
+                if (!jumped) {
+                    if (p.side === bySide) {
+                        if (p.type === 'rook') return true;
+                        if (p.type === 'king') return true; // king facing
+                    }
+                    jumped = true;
+                } else {
+                    // Second piece on the line: cannon can capture by jumping
+                    if (p.side === bySide && p.type === 'cannon') return true;
+                    break;
+                }
+            }
+            r += dr;
+            c += dc;
+        }
+    }
+
+    // 2. Horse attacks (check 8 positions where a horse could be)
+    const horseOffsets = [
+        [-2, -1], [-2, 1], [2, -1], [2, 1],
+        [-1, -2], [-1, 2], [1, -2], [1, 2],
+    ];
+    for (const [dr, dc] of horseOffsets) {
+        const hr = row + dr, hc = col + dc;
+        if (!board.isInBoard(hr, hc)) continue;
+        const p = board.getPiece(hr, hc);
+        if (!p || p.side !== bySide || p.type !== 'horse') continue;
+        // Check horse's leg (from horse's perspective moving toward target)
+        let legR, legC;
+        if (Math.abs(dr) === 2) {
+            legR = hr - Math.sign(dr);
+            legC = hc;
+        } else {
+            legR = hr;
+            legC = hc - Math.sign(dc);
+        }
+        if (!board.getPiece(legR, legC)) return true;
+    }
+
+    // 3. Pawn attacks
+    if (bySide === 'red') {
+        // Red pawn moves upward (row decreasing), so it attacks from row+1
+        if (board.isInBoard(row + 1, col)) {
+            const p = board.getPiece(row + 1, col);
+            if (p && p.side === 'red' && p.type === 'pawn') return true;
+        }
+        // Sideways attack (only if pawn has crossed river: pawn at row <= 4)
+        if (row <= 4) {
+            for (const dc of [-1, 1]) {
+                if (board.isInBoard(row, col + dc)) {
+                    const p = board.getPiece(row, col + dc);
+                    if (p && p.side === 'red' && p.type === 'pawn') return true;
+                }
+            }
+        }
+    } else {
+        // Black pawn moves downward (row increasing), so it attacks from row-1
+        if (board.isInBoard(row - 1, col)) {
+            const p = board.getPiece(row - 1, col);
+            if (p && p.side === 'black' && p.type === 'pawn') return true;
+        }
+        if (row >= 5) {
+            for (const dc of [-1, 1]) {
+                if (board.isInBoard(row, col + dc)) {
+                    const p = board.getPiece(row, col + dc);
+                    if (p && p.side === 'black' && p.type === 'pawn') return true;
+                }
+            }
+        }
+    }
+
+    return false;
 }
 
 function isUnderAttack(board, side) {
     const kingPos = board.findKing(side);
     if (!kingPos) return true;
-
     const opponentSide = side === 'red' ? 'black' : 'red';
-    const oppPieces = board.getPieces(opponentSide);
-
-    for (const p of oppPieces) {
-        const moves = generatePieceMoves(board, p.row, p.col);
-        for (const m of moves) {
-            if (m.toRow === kingPos.row && m.toCol === kingPos.col) {
-                return true;
-            }
-        }
-    }
-    return false;
+    return isSquareAttacked(board, kingPos.row, kingPos.col, opponentSide);
 }
 
 function kingsAreFacing(board) {
@@ -76,7 +152,7 @@ function kingsAreFacing(board) {
     return true;
 }
 
-export { isUnderAttack, kingsAreFacing };
+export { isUnderAttack, kingsAreFacing, isSquareAttacked };
 
 function canMoveTo(board, row, col, side) {
     if (!board.isInBoard(row, col)) return false;

@@ -3,6 +3,7 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { existsSync } from 'fs';
 import { PORT } from './config.js';
 import { initDB } from './db.js';
 import { setupAuthRoutes, authenticateSocket } from './auth.js';
@@ -13,6 +14,7 @@ import { setupSocketHandlers } from './socket-handler.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const ROOT_DIR = join(__dirname, '..');
+const DIST_DIR = join(ROOT_DIR, 'dist');
 
 async function start() {
     // Initialize database
@@ -25,8 +27,9 @@ async function start() {
     // Middleware
     app.use(express.json());
 
-    // Static files
-    app.use(express.static(ROOT_DIR));
+    // Static files: serve from dist/ if built, otherwise from root
+    const staticDir = existsSync(DIST_DIR) ? DIST_DIR : ROOT_DIR;
+    app.use(express.static(staticDir));
 
     // Health check (for Koyeb / cloud platforms)
     app.get('/health', (_req, res) => res.json({ status: 'ok' }));

@@ -23,6 +23,21 @@ export class UI {
         // Timeout tracking
         this._turnTimeout = null;
         this._disconnectInterval = null;
+        // AI Web Worker (keeps main thread responsive)
+        this.aiWorker = null;
+        this._initAIWorker();
+    }
+
+    _initAIWorker() {
+        try {
+            this.aiWorker = new Worker(
+                new URL('./ai-worker.js', import.meta.url),
+                { type: 'module' }
+            );
+        } catch {
+            // Fallback: worker not supported or module worker not available
+            this.aiWorker = null;
+        }
     }
 
     clearPendingTimeouts() {
@@ -587,17 +602,39 @@ export class UI {
 
         await new Promise(resolve => setTimeout(resolve, 300));
 
-        const aiMove = this.aiEngine.findBestMove(
-            this.game.board.clone(),
-            this.game.currentSide
-        );
+        let aiMove;
+        if (this.aiWorker) {
+            // Use Web Worker to keep UI responsive
+            aiMove = await new Promise(resolve => {
+                const handler = (e) => {
+                    if (e.data.type === 'bestMove') {
+                        this.aiWorker.removeEventListener('message', handler);
+                        resolve(e.data.move);
+                    }
+                };
+                this.aiWorker.addEventListener('message', handler);
+                this.aiWorker.postMessage({
+                    type: 'findBestMove',
+                    data: {
+                        grid: this.game.board.toJSON(),
+                        side: this.game.currentSide,
+                        difficulty: this.game.aiDifficulty,
+                    }
+                });
+            });
+        } else {
+            // Fallback: run on main thread
+            aiMove = this.aiEngine.findBestMove(
+                this.game.board.clone(),
+                this.game.currentSide
+            );
+        }
 
         if (aiMove) {
             const result = this.game.executeMove(
                 aiMove.fromRow, aiMove.fromCol,
                 aiMove.toRow, aiMove.toCol
             );
-            // handleMoveResult will set isTurnPaused and handle the 1s delay
             this.handleMoveResult(result);
         }
 
@@ -1096,11 +1133,34 @@ export class UI {
         await new Promise(resolve => setTimeout(resolve, 400));
 
         const aiPieceColor = this.darkGame.getActivePieceColor();
-        const action = this.darkAI.findBestAction(
-            this.darkGame.board,
-            aiPieceColor,
-            this.darkGame.movesSinceCapture
-        );
+        let action;
+
+        if (this.aiWorker) {
+            action = await new Promise(resolve => {
+                const handler = (e) => {
+                    if (e.data.type === 'darkChessAction') {
+                        this.aiWorker.removeEventListener('message', handler);
+                        resolve(e.data.action);
+                    }
+                };
+                this.aiWorker.addEventListener('message', handler);
+                this.aiWorker.postMessage({
+                    type: 'findDarkChessAction',
+                    data: {
+                        grid: this.darkGame.board.toJSON(),
+                        side: aiPieceColor,
+                        movesSinceCapture: this.darkGame.movesSinceCapture,
+                        difficulty: this.dcDifficulty,
+                    }
+                });
+            });
+        } else {
+            action = this.darkAI.findBestAction(
+                this.darkGame.board,
+                aiPieceColor,
+                this.darkGame.movesSinceCapture
+            );
+        }
 
         if (action) {
             if (action.action === 'flip') {
