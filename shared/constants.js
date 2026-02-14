@@ -308,14 +308,15 @@ export const DC_DRAW_MOVE_LIMIT = 50;
 
 // Material values for dark chess AI
 export const DC_PIECE_VALUES = {
-    king: 600, advisor: 250, elephant: 250,
-    rook: 500, horse: 300, cannon: 300, pawn: 100
+    king: 550, advisor: 250, elephant: 250,
+    rook: 500, horse: 300, cannon: 350, pawn: 150
 };
 
-// Dark chess AI difficulty settings (depths increased due to fixed alpha-beta)
+// Dark chess AI difficulty settings
 export const DC_AI_CONFIG = {
     beginner: { depth: 1, randomness: 80, monteCarloSims: 0 },
     easy:     { depth: 3, randomness: 30, monteCarloSims: 0 },
     medium:   { depth: 4, randomness: 0,  monteCarloSims: 30 },
-    hard:     { depth: 5, randomness: 0,  monteCarloSims: 80 },
+    hard:     { depth: 6, randomness: 0,  monteCarloSims: 80 },
+    master:   { depth: 7, randomness: 0,  monteCarloSims: 150 },
 };
