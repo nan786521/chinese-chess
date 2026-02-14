@@ -37,6 +37,29 @@ export function generateAllLegalMoves(board, side) {
     return moves;
 }
 
+export function generateCaptureMoves(board, side) {
+    const moves = [];
+    const pieces = board.getPieces(side);
+
+    for (const p of pieces) {
+        const pieceMoves = generatePieceMoves(board, p.row, p.col);
+        for (const m of pieceMoves) {
+            const target = board.grid[m.toRow][m.toCol];
+            if (!target || target.side === side) continue; // only captures
+            if (!wouldLeaveInCheck(board, p.row, p.col, m.toRow, m.toCol, side)) {
+                moves.push({
+                    fromRow: p.row,
+                    fromCol: p.col,
+                    toRow: m.toRow,
+                    toCol: m.toCol
+                });
+            }
+        }
+    }
+
+    return moves;
+}
+
 function wouldLeaveInCheck(board, fromRow, fromCol, toRow, toCol, side) {
     const captured = board.movePiece(fromRow, fromCol, toRow, toCol);
     const kingPos = board.findKing(side);
@@ -138,21 +161,7 @@ function isUnderAttack(board, side) {
     return isSquareAttacked(board, kingPos.row, kingPos.col, opponentSide);
 }
 
-function kingsAreFacing(board) {
-    const redKing = board.findKing('red');
-    const blackKing = board.findKing('black');
-    if (!redKing || !blackKing) return false;
-    if (redKing.col !== blackKing.col) return false;
-
-    const minRow = Math.min(redKing.row, blackKing.row);
-    const maxRow = Math.max(redKing.row, blackKing.row);
-    for (let r = minRow + 1; r < maxRow; r++) {
-        if (board.getPiece(r, redKing.col)) return false;
-    }
-    return true;
-}
-
-export { isUnderAttack, kingsAreFacing, isSquareAttacked };
+export { isUnderAttack, isSquareAttacked };
 
 function canMoveTo(board, row, col, side) {
     if (!board.isInBoard(row, col)) return false;

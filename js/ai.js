@@ -1,4 +1,4 @@
-import { generateAllLegalMoves } from '../shared/moves.js';
+import { generateAllLegalMoves, generateCaptureMoves } from '../shared/moves.js';
 import { isInCheck } from '../shared/rules.js';
 import { PIECE_VALUES, PST, PST_ENDGAME, PHASE_WEIGHTS, TOTAL_PHASE, AI_DIFFICULTY, ROWS, COLS } from '../shared/constants.js';
 import { TranspositionTable, EXACT, ALPHA_FLAG, BETA_FLAG } from '../shared/zobrist.js';
@@ -146,7 +146,7 @@ export class AIEngine {
         return { move: bestMove, score: bestScore };
     }
 
-    negamax(board, depth, alpha, beta, side, ply, allowNull) {
+    negamax(board, depth, alpha, beta, side, ply, allowNull, inCheckHint) {
         this.nodesSearched++;
 
         // Time check every 4096 nodes
@@ -165,13 +165,14 @@ export class AIEngine {
         if (ttEntry && ttEntry.score !== undefined) return ttEntry.score;
         const ttMove = ttEntry?.bestMove || null;
 
-        const inCheck = isInCheck(board, side);
+        // Use hint from parent if available, otherwise compute
+        const inCheck = inCheckHint !== undefined ? inCheckHint : isInCheck(board, side);
 
         // Check extension
         if (inCheck && ply < this.maxDepth + 6) depth++;
 
         if (depth <= 0) {
-            return this.quiesce(board, alpha, beta, side, this.quiesceDepth);
+            return this.quiesce(board, alpha, beta, side, this.quiesceDepth, inCheck);
         }
 
         const oppSide = side === 'red' ? 'black' : 'red';
@@ -192,7 +193,7 @@ export class AIEngine {
         let staticEval = null;
         const canFutility = !inCheck && depth <= 3;
         if (canFutility) {
-            staticEval = this.evaluate(board, side);
+            staticEval = this.evaluate(board, side, false);
         }
 
         let bestMove = moves[0];
@@ -218,31 +219,25 @@ export class AIEngine {
             // LMR: Late Move Reductions
             let reduction = 0;
             if (depth >= 3 && movesSearched >= 3 && !cap && !inCheck && !givesCheck) {
-                // Reduce more for moves searched later
                 reduction = 1;
                 if (movesSearched >= 6) reduction = 2;
                 if (depth <= 4) reduction = Math.min(reduction, 1);
             }
 
             if (movesSearched === 0) {
-                // First move: full window
-                score = -this.negamax(board, depth - 1, -beta, -alpha, oppSide, ply + 1, true);
+                score = -this.negamax(board, depth - 1, -beta, -alpha, oppSide, ply + 1, true, givesCheck);
             } else if (reduction > 0) {
-                // LMR: reduced depth, zero-window
-                score = -this.negamax(board, depth - 1 - reduction, -alpha - 1, -alpha, oppSide, ply + 1, true);
+                score = -this.negamax(board, depth - 1 - reduction, -alpha - 1, -alpha, oppSide, ply + 1, true, givesCheck);
                 if (score > alpha) {
-                    // Failed high: re-search at full depth, zero-window
-                    score = -this.negamax(board, depth - 1, -alpha - 1, -alpha, oppSide, ply + 1, true);
+                    score = -this.negamax(board, depth - 1, -alpha - 1, -alpha, oppSide, ply + 1, true, givesCheck);
                     if (score > alpha && score < beta) {
-                        // PVS re-search with full window
-                        score = -this.negamax(board, depth - 1, -beta, -alpha, oppSide, ply + 1, true);
+                        score = -this.negamax(board, depth - 1, -beta, -alpha, oppSide, ply + 1, true, givesCheck);
                     }
                 }
             } else {
-                // PVS: zero-window
-                score = -this.negamax(board, depth - 1, -alpha - 1, -alpha, oppSide, ply + 1, true);
+                score = -this.negamax(board, depth - 1, -alpha - 1, -alpha, oppSide, ply + 1, true, givesCheck);
                 if (score > alpha && score < beta) {
-                    score = -this.negamax(board, depth - 1, -beta, -alpha, oppSide, ply + 1, true);
+                    score = -this.negamax(board, depth - 1, -beta, -alpha, oppSide, ply + 1, true, givesCheck);
                 }
             }
 
@@ -270,34 +265,39 @@ export class AIEngine {
         return alpha;
     }
 
-    quiesce(board, alpha, beta, side, maxDepth) {
-        const standPat = this.evaluate(board, side);
+    quiesce(board, alpha, beta, side, maxDepth, inCheckHint) {
+        const inCheck = inCheckHint !== undefined ? inCheckHint : isInCheck(board, side);
+        const standPat = this.evaluate(board, side, inCheck);
         if (maxDepth <= 0) return standPat;
-        if (standPat >= beta) return beta;
 
-        const DELTA = PIECE_VALUES.rook + 200;
-        if (standPat + DELTA < alpha) return alpha;
-
-        if (standPat > alpha) alpha = standPat;
-
-        const inCheck = isInCheck(board, side);
-        const moves = generateAllLegalMoves(board, side);
-
-        let candidates;
-        if (inCheck) {
-            candidates = moves;
-        } else {
-            candidates = [];
-            for (const m of moves) {
-                const victim = board.getPiece(m.toRow, m.toCol);
-                if (victim && standPat + PIECE_VALUES[victim.type] + 200 > alpha) {
-                    candidates.push(m);
-                }
-            }
+        if (!inCheck) {
+            if (standPat >= beta) return beta;
+            const DELTA = PIECE_VALUES.rook + 200;
+            if (standPat + DELTA < alpha) return alpha;
+            if (standPat > alpha) alpha = standPat;
         }
 
-        if (candidates.length === 0) return alpha;
+        // In check: must search all moves; otherwise only captures
+        let candidates;
+        if (inCheck) {
+            candidates = generateAllLegalMoves(board, side);
+            if (candidates.length === 0) return -PIECE_VALUES.king; // checkmate
+        } else {
+            candidates = generateCaptureMoves(board, side);
+            // Delta pruning: filter out losing captures
+            const filtered = [];
+            for (const m of candidates) {
+                const victim = board.getPiece(m.toRow, m.toCol);
+                if (victim && standPat + PIECE_VALUES[victim.type] + 200 > alpha) {
+                    filtered.push(m);
+                }
+            }
+            candidates = filtered;
+        }
 
+        if (candidates.length === 0) return inCheck ? standPat : alpha;
+
+        // MVV ordering for captures
         candidates.sort((a, b) => {
             const captA = board.getPiece(a.toRow, a.toCol);
             const captB = board.getPiece(b.toRow, b.toCol);
@@ -320,7 +320,7 @@ export class AIEngine {
 
     // === Evaluation ===
 
-    evaluate(board, side) {
+    evaluate(board, side, oppInCheck) {
         let score = 0;
         const oppSide = side === 'red' ? 'black' : 'red';
 
@@ -359,8 +359,9 @@ export class AIEngine {
             score -= this.taperedPST(p, oppSide, phase);
         }
 
-        // Check bonus
-        if (isInCheck(board, oppSide)) score += 200;
+        // Check bonus — use hint from caller if available
+        const givingCheck = oppInCheck !== undefined ? oppInCheck : isInCheck(board, oppSide);
+        if (givingCheck) score += 200;
 
         // King safety (phase-weighted)
         const kingSafety = this.evalKingSafety(board, ownPieces, side, oppPieces) -
@@ -598,12 +599,6 @@ export class AIEngine {
     }
 
     isEndgame(board) {
-        let total = 0;
-        for (let r = 0; r < ROWS; r++) {
-            for (let c = 0; c < COLS; c++) {
-                if (board.getPiece(r, c)) total++;
-            }
-        }
-        return total <= 10;
+        return board.pieceCount <= 10;
     }
 }

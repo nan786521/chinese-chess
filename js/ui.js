@@ -609,9 +609,9 @@ export class UI {
             // Use Web Worker to keep UI responsive
             aiMove = await new Promise(resolve => {
                 const handler = (e) => {
-                    if (e.data.type === 'bestMove') {
+                    if (e.data.type === 'bestMove' || e.data.type === 'error') {
                         this.aiWorker.removeEventListener('message', handler);
-                        resolve(e.data.move);
+                        resolve(e.data.type === 'bestMove' ? e.data.move : null);
                     }
                 };
                 this.aiWorker.addEventListener('message', handler);
@@ -1138,9 +1138,9 @@ export class UI {
         if (this.aiWorker) {
             action = await new Promise(resolve => {
                 const handler = (e) => {
-                    if (e.data.type === 'darkChessAction') {
+                    if (e.data.type === 'darkChessAction' || e.data.type === 'error') {
                         this.aiWorker.removeEventListener('message', handler);
-                        resolve(e.data.action);
+                        resolve(e.data.type === 'darkChessAction' ? e.data.action : null);
                     }
                 };
                 this.aiWorker.addEventListener('message', handler);

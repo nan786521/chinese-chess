@@ -23,6 +23,12 @@ export class Board extends BoardLogic {
                 copy.grid[r][c] = piece ? { type: piece.type, side: piece.side } : null;
             }
         }
+        copy.hash = this.hash;
+        copy.pieceCount = this.pieceCount;
+        copy._kingPos = {
+            red: this._kingPos.red ? { ...this._kingPos.red } : null,
+            black: this._kingPos.black ? { ...this._kingPos.black } : null,
+        };
         return copy;
     }
 

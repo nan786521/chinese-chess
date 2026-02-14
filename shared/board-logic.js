@@ -5,6 +5,8 @@ export class BoardLogic {
     constructor() {
         this.grid = [];
         this.hash = 0;
+        this.pieceCount = 0;
+        this._kingPos = { red: null, black: null };
     }
 
     init() {
@@ -13,12 +15,16 @@ export class BoardLogic {
             this.grid[r] = new Array(COLS).fill(null);
         }
         this.hash = 0;
+        this.pieceCount = 0;
+        this._kingPos = { red: null, black: null };
     }
 
     setupInitialPosition() {
         this.init();
         for (const p of INITIAL_POSITIONS) {
             this.grid[p.row][p.col] = { type: p.type, side: p.side };
+            this.pieceCount++;
+            if (p.type === 'king') this._kingPos[p.side] = { row: p.row, col: p.col };
         }
         this.computeHash();
     }
@@ -35,6 +41,20 @@ export class BoardLogic {
         }
     }
 
+    _rebuildMeta() {
+        this.pieceCount = 0;
+        this._kingPos = { red: null, black: null };
+        for (let r = 0; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+                const p = this.grid[r][c];
+                if (p) {
+                    this.pieceCount++;
+                    if (p.type === 'king') this._kingPos[p.side] = { row: r, col: c };
+                }
+            }
+        }
+    }
+
     clone() {
         const copy = new BoardLogic();
         copy.grid = [];
@@ -46,6 +66,11 @@ export class BoardLogic {
             }
         }
         copy.hash = this.hash;
+        copy.pieceCount = this.pieceCount;
+        copy._kingPos = {
+            red: this._kingPos.red ? { ...this._kingPos.red } : null,
+            black: this._kingPos.black ? { ...this._kingPos.black } : null,
+        };
         return copy;
     }
 
@@ -62,6 +87,7 @@ export class BoardLogic {
             cell ? { type: cell.type, side: cell.side } : null
         ));
         this.computeHash();
+        this._rebuildMeta();
     }
 
     getPiece(row, col) {
@@ -74,10 +100,14 @@ export class BoardLogic {
         const old = this.grid[row][col];
         if (old) {
             this.hash = (this.hash ^ pieceKeys[old.type][old.side][row][col]) >>> 0;
+            this.pieceCount--;
+            if (old.type === 'king') this._kingPos[old.side] = null;
         }
         // Add new piece
         if (piece) {
             this.hash = (this.hash ^ pieceKeys[piece.type][piece.side][row][col]) >>> 0;
+            this.pieceCount++;
+            if (piece.type === 'king') this._kingPos[piece.side] = { row, col };
         }
         this.grid[row][col] = piece;
     }
@@ -86,6 +116,8 @@ export class BoardLogic {
         const old = this.grid[row][col];
         if (old) {
             this.hash = (this.hash ^ pieceKeys[old.type][old.side][row][col]) >>> 0;
+            this.pieceCount--;
+            if (old.type === 'king') this._kingPos[old.side] = null;
         }
         this.grid[row][col] = null;
     }
@@ -101,8 +133,15 @@ export class BoardLogic {
         }
         if (captured) {
             this.hash = (this.hash ^ pieceKeys[captured.type][captured.side][toRow][toCol]) >>> 0;
+            this.pieceCount--;
+            if (captured.type === 'king') this._kingPos[captured.side] = null;
         }
         this.hash = (this.hash ^ sideKey) >>> 0;
+
+        // Update king position cache
+        if (moving && moving.type === 'king') {
+            this._kingPos[moving.side] = { row: toRow, col: toCol };
+        }
 
         this.grid[toRow][toCol] = this.grid[fromRow][fromCol];
         this.grid[fromRow][fromCol] = null;
@@ -117,10 +156,16 @@ export class BoardLogic {
         this.hash = (this.hash ^ sideKey) >>> 0;
         if (captured) {
             this.hash = (this.hash ^ pieceKeys[captured.type][captured.side][toRow][toCol]) >>> 0;
+            this.pieceCount++;
+            if (captured.type === 'king') this._kingPos[captured.side] = { row: toRow, col: toCol };
         }
         if (moving) {
             this.hash = (this.hash ^ pieceKeys[moving.type][moving.side][toRow][toCol]) >>> 0;
             this.hash = (this.hash ^ pieceKeys[moving.type][moving.side][fromRow][fromCol]) >>> 0;
+            // Restore king position
+            if (moving.type === 'king') {
+                this._kingPos[moving.side] = { row: fromRow, col: fromCol };
+            }
         }
 
         this.grid[fromRow][fromCol] = this.grid[toRow][toCol];
@@ -128,15 +173,7 @@ export class BoardLogic {
     }
 
     findKing(side) {
-        for (let r = 0; r < ROWS; r++) {
-            for (let c = 0; c < COLS; c++) {
-                const p = this.grid[r][c];
-                if (p && p.type === 'king' && p.side === side) {
-                    return { row: r, col: c };
-                }
-            }
-        }
-        return null;
+        return this._kingPos[side] || null;
     }
 
     getPieces(side) {
