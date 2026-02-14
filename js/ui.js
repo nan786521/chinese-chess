@@ -48,10 +48,12 @@ export class UI {
     }
 
     showToast(message) {
-        // Use statusText area for toast-like messages
+        // Debounce: clear pending toast timer
+        if (this._toastTimer) clearTimeout(this._toastTimer);
         this.el.statusText.textContent = message;
         this.el.statusText.className = 'check';
-        setTimeout(() => {
+        this._toastTimer = setTimeout(() => {
+            this._toastTimer = null;
             if (this.el.statusText.textContent === message) {
                 this.el.statusText.textContent = '';
                 this.el.statusText.className = '';
@@ -668,52 +670,39 @@ export class UI {
     clearCapturedPieces() {
         this.capturedByRed = [];
         this.capturedByBlack = [];
-        this.renderCapturedPanels();
+        if (this.el.capturedLeft) this.el.capturedLeft.innerHTML = '';
+        if (this.el.capturedRight) this.el.capturedRight.innerHTML = '';
     }
 
     addCapturedPiece(captured, capturedBySide) {
         if (!captured) return;
-        if (capturedBySide === RED) {
-            this.capturedByRed.push(captured);
-        } else {
-            this.capturedByBlack.push(captured);
+        const panel = capturedBySide === RED ? this.el.capturedLeft : this.el.capturedRight;
+        const list = capturedBySide === RED ? this.capturedByRed : this.capturedByBlack;
+        list.push(captured);
+        if (!panel) return;
+        // Add label on first piece
+        if (list.length === 1) {
+            const label = document.createElement('div');
+            label.className = 'captured-label';
+            label.textContent = capturedBySide === RED ? '紅方' : '黑方';
+            panel.appendChild(label);
         }
-        this.renderCapturedPanels();
+        panel.appendChild(this.createCapturedPieceEl(captured));
     }
 
     removeCapturedPiece(capturedBySide) {
-        if (capturedBySide === RED) {
-            this.capturedByRed.pop();
-        } else {
-            this.capturedByBlack.pop();
+        const panel = capturedBySide === RED ? this.el.capturedLeft : this.el.capturedRight;
+        const list = capturedBySide === RED ? this.capturedByRed : this.capturedByBlack;
+        list.pop();
+        if (!panel) return;
+        // Remove last piece element
+        const lastChild = panel.lastElementChild;
+        if (lastChild && lastChild.classList.contains('captured-piece')) {
+            lastChild.remove();
         }
-        this.renderCapturedPanels();
-    }
-
-    renderCapturedPanels() {
-        if (this.el.capturedLeft) {
-            this.el.capturedLeft.innerHTML = '';
-            if (this.capturedByRed.length > 0) {
-                const label = document.createElement('div');
-                label.className = 'captured-label';
-                label.textContent = '紅方';
-                this.el.capturedLeft.appendChild(label);
-                for (const p of this.capturedByRed) {
-                    this.el.capturedLeft.appendChild(this.createCapturedPieceEl(p));
-                }
-            }
-        }
-        if (this.el.capturedRight) {
-            this.el.capturedRight.innerHTML = '';
-            if (this.capturedByBlack.length > 0) {
-                const label = document.createElement('div');
-                label.className = 'captured-label';
-                label.textContent = '黑方';
-                this.el.capturedRight.appendChild(label);
-                for (const p of this.capturedByBlack) {
-                    this.el.capturedRight.appendChild(this.createCapturedPieceEl(p));
-                }
-            }
+        // Remove label if no pieces left
+        if (list.length === 0) {
+            panel.innerHTML = '';
         }
     }
 
@@ -801,6 +790,7 @@ export class UI {
             this.isDarkChessMode = false;
             this.el.gameScreen.classList.remove('dark-chess');
             document.getElementById('app-container').classList.remove('dark-chess');
+            this.el.chessBoard.classList.remove('dc-board');
             // Re-create standard board DOM
             this.board.createBoardDOM(this.el.chessBoard);
             this.board.onCellClick = (row, col) => this.onCellClick(row, col);
@@ -1002,15 +992,25 @@ export class UI {
         this.isSpectating = false;
         this.isTurnPaused = false;
 
+        const isNewBoard = !this.darkGame;
         this.darkGame = new DarkChessGame();
         this.darkGame.newGame(mode, this.dcDifficulty);
         if (mode === 'dc-pva') {
             this.darkAI.setDifficulty(this.dcDifficulty);
         }
 
-        // Setup dark chess board DOM
-        this.darkGame.board.createBoardDOM(this.el.chessBoard);
+        // Only recreate DOM if switching from standard board; reuse for consecutive dark games
+        if (isNewBoard || !this.el.chessBoard.classList.contains('dc-board')) {
+            this.darkGame.board.createBoardDOM(this.el.chessBoard);
+            this.el.chessBoard.classList.add('dc-board');
+        } else {
+            // Reuse existing DOM — just rebind the board logic
+            this.darkGame.board.boardElement = this.el.chessBoard;
+            this.darkGame.board.canvasElement = this.el.chessBoard.querySelector('.board-canvas');
+            this.darkGame.board.cellElements = this._dcCellElements;
+        }
         this.darkGame.board.onCellClick = (row, col) => this.onDarkChessClick(row, col);
+        this._dcCellElements = this.darkGame.board.cellElements;
 
         this.setupGameUI(false);
         this.showGame();

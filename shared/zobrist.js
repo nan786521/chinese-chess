@@ -1,9 +1,9 @@
 // Zobrist Hashing + Transposition Table for Chinese Chess AI
 
+import { ROWS, COLS, RED, BLACK } from './constants.js';
+
 const PIECE_TYPES = ['king', 'advisor', 'elephant', 'rook', 'horse', 'cannon', 'pawn'];
-const SIDES = ['red', 'black'];
-const ROWS = 10;
-const COLS = 9;
+const SIDES = [RED, BLACK];
 
 // Seeded PRNG (Mulberry32) for deterministic keys across sessions
 function mulberry32(seed) {

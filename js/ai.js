@@ -323,10 +323,30 @@ export class AIEngine {
     evaluate(board, side) {
         let score = 0;
         const oppSide = side === 'red' ? 'black' : 'red';
-        const ownPieces = board.getPieces(side);
-        const oppPieces = board.getPieces(oppSide);
 
-        const phase = this.calcPhase(ownPieces, oppPieces);
+        // Single-pass board scan: collect pieces, phase, king positions
+        const ownPieces = [];
+        const oppPieces = [];
+        let ownKing = null, oppKing = null;
+        let phaseWeight = 0;
+
+        for (let r = 0; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+                const p = board.grid[r][c];
+                if (!p) continue;
+                const piece = { type: p.type, side: p.side, row: r, col: c };
+                phaseWeight += PHASE_WEIGHTS[p.type] || 0;
+                if (p.side === side) {
+                    ownPieces.push(piece);
+                    if (p.type === 'king') ownKing = piece;
+                } else {
+                    oppPieces.push(piece);
+                    if (p.type === 'king') oppKing = piece;
+                }
+            }
+        }
+
+        const phase = Math.min(256, Math.floor((phaseWeight / TOTAL_PHASE) * 256));
         const totalPieces = ownPieces.length + oppPieces.length;
 
         // Material + Tapered PST
@@ -351,8 +371,6 @@ export class AIEngine {
         score += this.evalActivity(ownPieces, side) - this.evalActivity(oppPieces, oppSide);
 
         // King tropism
-        const oppKing = board.findKing(oppSide);
-        const ownKing = board.findKing(side);
         if (oppKing) score += this.evalKingTropism(ownPieces, oppKing);
         if (ownKing) score -= this.evalKingTropism(oppPieces, ownKing);
 
@@ -378,13 +396,6 @@ export class AIEngine {
         }
 
         return score;
-    }
-
-    calcPhase(ownPieces, oppPieces) {
-        let current = 0;
-        for (const p of ownPieces) current += PHASE_WEIGHTS[p.type] || 0;
-        for (const p of oppPieces) current += PHASE_WEIGHTS[p.type] || 0;
-        return Math.min(256, Math.floor((current / TOTAL_PHASE) * 256));
     }
 
     taperedPST(piece, side, phase) {

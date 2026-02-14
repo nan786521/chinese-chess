@@ -6,6 +6,7 @@ import { PIECE_CHARS } from '../shared/constants.js';
 import { RECONNECT_TIMEOUT } from './config.js';
 
 const MAX_GAMES = 200;
+const MAX_MOVE_HISTORY = 500; // Cap move history per game
 
 export class GameManager {
     constructor() {
@@ -77,6 +78,9 @@ export class GameManager {
         const captured = game.board.movePiece(fromRow, fromCol, toRow, toCol);
 
         const moveRecord = { fromRow, fromCol, toRow, toCol };
+        if (game.moveHistory.length >= MAX_MOVE_HISTORY) {
+            game.moveHistory.shift();
+        }
         game.moveHistory.push(moveRecord);
         game.moveCount++;
 
