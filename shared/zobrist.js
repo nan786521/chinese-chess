@@ -48,10 +48,15 @@ const TT_MASK = TT_SIZE - 1;
 export class TranspositionTable {
     constructor() {
         this.entries = new Array(TT_SIZE);
+        this.age = 0;
     }
 
     clear() {
         this.entries = new Array(TT_SIZE);
+    }
+
+    newSearch() {
+        this.age++;
     }
 
     probe(hash, depth, alpha, beta) {
@@ -77,9 +82,10 @@ export class TranspositionTable {
     store(hash, depth, score, flag, bestMove) {
         const idx = hash & TT_MASK;
         const existing = this.entries[idx];
-        // Replace if empty, same position, or new search is deeper
-        if (!existing || existing.hash === hash || existing.depth <= depth) {
-            this.entries[idx] = { hash, depth, score, flag, bestMove };
+        // Replace if: empty, same position, stale entry from older search, or deeper
+        if (!existing || existing.hash === hash ||
+            existing.age !== this.age || existing.depth <= depth) {
+            this.entries[idx] = { hash, depth, score, flag, bestMove, age: this.age };
         }
     }
 }

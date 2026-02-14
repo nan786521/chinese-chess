@@ -61,11 +61,16 @@ export async function initDB() {
         )
     `);
 
+    // Indexes for game history queries
+    db.run('CREATE INDEX IF NOT EXISTS idx_games_red ON games(red_user_id)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_games_black ON games(black_user_id)');
+
     saveToDisk();
 
     // Save on exit
     process.on('exit', saveToDisk);
     process.on('SIGINT', () => { saveToDisk(); process.exit(); });
+    process.on('SIGTERM', () => { saveToDisk(); process.exit(); });
 
     return db;
 }

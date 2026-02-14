@@ -1,6 +1,21 @@
 import { MAX_CHAT_LENGTH } from './config.js';
 import { finishGame } from './leaderboard.js';
 
+// Per-socket rate limiter
+const SOCKET_RATE_WINDOW = 10000; // 10 seconds
+const SOCKET_RATE_MAX = 50; // max events per window
+
+function checkSocketRate(socket) {
+    const now = Date.now();
+    if (!socket._rateWindow || now > socket._rateReset) {
+        socket._rateWindow = 1;
+        socket._rateReset = now + SOCKET_RATE_WINDOW;
+        return true;
+    }
+    socket._rateWindow++;
+    return socket._rateWindow <= SOCKET_RATE_MAX;
+}
+
 export function setupSocketHandlers(io, socket, roomManager, gameManager) {
     const user = {
         userId: socket.user.userId,
@@ -37,12 +52,15 @@ export function setupSocketHandlers(io, socket, roomManager, gameManager) {
     // === Room Events ===
 
     socket.on('room:create', ({ hostSide }) => {
-        const room = roomManager.createRoom(user, hostSide || 'red');
+        if (!checkSocketRate(socket)) return;
+        const side = hostSide === 'black' ? 'black' : 'red';
+        const room = roomManager.createRoom(user, side);
         socket.join(room.code);
         socket.emit('room:created', { code: room.code, hostSide: room.hostSide });
     });
 
     socket.on('room:join', ({ code }) => {
+        if (!checkSocketRate(socket)) return;
         const result = roomManager.joinRoom(code, user);
         if (result.error) {
             socket.emit('room:error', { message: result.error });
@@ -143,6 +161,7 @@ export function setupSocketHandlers(io, socket, roomManager, gameManager) {
     // === Game Events ===
 
     socket.on('game:move', ({ fromRow, fromCol, toRow, toCol }) => {
+        if (!checkSocketRate(socket)) return;
         // Validate input coordinates
         if (!Number.isInteger(fromRow) || !Number.isInteger(fromCol) ||
             !Number.isInteger(toRow) || !Number.isInteger(toCol) ||
@@ -242,6 +261,7 @@ export function setupSocketHandlers(io, socket, roomManager, gameManager) {
     // === Chat ===
 
     socket.on('chat:message', ({ text }) => {
+        if (!checkSocketRate(socket)) return;
         if (!text || typeof text !== 'string' || text.length > MAX_CHAT_LENGTH) return;
         const room = roomManager.getUserRoom(user.userId);
         if (!room) return;

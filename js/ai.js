@@ -24,7 +24,7 @@ export class AIEngine {
         this.randomness = 0;
         this.tt = new TranspositionTable();
         this.killerMoves = [];
-        this.history = {};
+        this.history = new Int32Array(2 * 8100);
         this.startTime = 0;
         this.timeLimit = 5000;
         this.aborted = false;
@@ -41,11 +41,11 @@ export class AIEngine {
         this.randomness = config.randomness;
         this.nodesSearched = 0;
         this.killerMoves = new Array(this.maxDepth + 10).fill(null);
-        this.history = {};
+        this.history = new Int32Array(2 * 8100);
         this.startTime = performance.now();
         this.timeLimit = TIME_LIMIT[this.difficulty] || 5000;
         this.aborted = false;
-        // TT persists across moves — don't clear
+        this.tt.newSearch(); // Increment age for TT replacement policy
 
         const moves = generateAllLegalMoves(board, side);
         if (moves.length === 0) return null;
@@ -545,34 +545,48 @@ export class AIEngine {
 
     orderMoves(board, moves, priorityMove, ply, side) {
         const killers = this.killerMoves[ply] || [null, null];
-        moves.sort((a, b) => {
-            return this.moveScore(board, b, priorityMove, killers, side) -
-                   this.moveScore(board, a, priorityMove, killers, side);
-        });
+        const sideIdx = side === 'red' ? 0 : 1;
+
+        // Pre-compute scores to avoid repeated getPiece calls in sort comparator
+        const scores = new Int32Array(moves.length);
+        for (let i = 0; i < moves.length; i++) {
+            scores[i] = this._moveScore(board, moves[i], priorityMove, killers, sideIdx);
+        }
+
+        // Index-based sort to pair scores with moves
+        const indices = Array.from({ length: moves.length }, (_, i) => i);
+        indices.sort((a, b) => scores[b] - scores[a]);
+        const sorted = indices.map(i => moves[i]);
+        for (let i = 0; i < moves.length; i++) moves[i] = sorted[i];
     }
 
-    moveScore(board, move, priorityMove, killers, side) {
-        if (priorityMove && this.movesEqual(move, priorityMove)) return 100000;
+    _moveScore(board, move, priorityMove, killers, sideIdx) {
+        if (priorityMove && move.fromRow === priorityMove.fromRow && move.fromCol === priorityMove.fromCol &&
+            move.toRow === priorityMove.toRow && move.toCol === priorityMove.toCol) return 100000;
 
-        const victim = board.getPiece(move.toRow, move.toCol);
-        const attacker = board.getPiece(move.fromRow, move.fromCol);
-
+        const victim = board.grid[move.toRow][move.toCol];
         if (victim) {
+            const attacker = board.grid[move.fromRow][move.fromCol];
             return 50000 + (PIECE_VALUES[victim.type] || 0) * 10 - (PIECE_VALUES[attacker?.type] || 0);
         }
 
-        if (this.movesEqual(move, killers[0])) return 40000;
-        if (this.movesEqual(move, killers[1])) return 39000;
+        if (killers[0] && move.fromRow === killers[0].fromRow && move.fromCol === killers[0].fromCol &&
+            move.toRow === killers[0].toRow && move.toCol === killers[0].toCol) return 40000;
+        if (killers[1] && move.fromRow === killers[1].fromRow && move.fromCol === killers[1].fromCol &&
+            move.toRow === killers[1].toRow && move.toCol === killers[1].toCol) return 39000;
 
-        return this.getHistory(side, move);
+        // Numeric history key: sideIdx * 8100 + fromRow*9*10*9 ... simplified to flat index
+        const key = sideIdx * 8100 + move.fromRow * 810 + move.fromCol * 90 + move.toRow * 9 + move.toCol;
+        return this.history[key] | 0;
     }
 
     // === Killer Moves ===
 
     storeKiller(ply, move) {
         if (!this.killerMoves[ply]) this.killerMoves[ply] = [null, null];
-        const [k1] = this.killerMoves[ply];
-        if (!this.movesEqual(k1, move)) {
+        const k1 = this.killerMoves[ply][0];
+        if (!k1 || k1.fromRow !== move.fromRow || k1.fromCol !== move.fromCol ||
+            k1.toRow !== move.toRow || k1.toCol !== move.toCol) {
             this.killerMoves[ply][1] = k1;
             this.killerMoves[ply][0] = { fromRow: move.fromRow, fromCol: move.fromCol, toRow: move.toRow, toCol: move.toCol };
         }
@@ -580,23 +594,22 @@ export class AIEngine {
 
     // === History Heuristic ===
 
+    _historyKey(side, move) {
+        const sideIdx = side === 'red' ? 0 : 1;
+        return sideIdx * 8100 + move.fromRow * 810 + move.fromCol * 90 + move.toRow * 9 + move.toCol;
+    }
+
     storeHistory(side, move, depth) {
-        const key = `${side}_${move.fromRow}_${move.fromCol}_${move.toRow}_${move.toCol}`;
-        const val = (this.history[key] || 0) + depth * depth;
+        const key = this._historyKey(side, move);
+        const val = (this.history[key] | 0) + depth * depth;
         this.history[key] = val > 500000 ? 500000 : val;
     }
 
     getHistory(side, move) {
-        return this.history[`${side}_${move.fromRow}_${move.fromCol}_${move.toRow}_${move.toCol}`] || 0;
+        return this.history[this._historyKey(side, move)] | 0;
     }
 
     // === Helpers ===
-
-    movesEqual(a, b) {
-        if (!a || !b) return false;
-        return a.fromRow === b.fromRow && a.fromCol === b.fromCol &&
-               a.toRow === b.toRow && a.toCol === b.toCol;
-    }
 
     isEndgame(board) {
         return board.pieceCount <= 10;
