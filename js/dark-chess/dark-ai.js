@@ -28,7 +28,9 @@ export class DarkChessAI {
         let bestAction = actions[0];
         const oppSide = side === RED ? BLACK : RED;
 
-        this.orderActions(board, actions, side);
+        // Generate opponent moves once for ordering + evaluation reuse
+        const oppMoves = generateDarkChessMoves(board, oppSide);
+        this.orderActions(board, actions, side, oppMoves);
 
         for (const action of actions) {
             let score;
@@ -49,7 +51,6 @@ export class DarkChessAI {
                 } else if (gameState.over) {
                     score = 0;
                 } else {
-                    // Fixed: pass -bestScore as beta for proper alpha-beta pruning
                     score = -this.negamax(board, config.depth - 1, -Infinity, -bestScore, oppSide, newMSC);
                 }
 
@@ -84,7 +85,9 @@ export class DarkChessAI {
         }
 
         const actions = generateDarkChessMoves(board, side);
-        this.orderActions(board, actions, side);
+        // Generate opponent moves once for both ordering and potential evaluation
+        const oppMoves = generateDarkChessMoves(board, oppSide);
+        this.orderActions(board, actions, side, oppMoves);
 
         let best = -Infinity;
 
@@ -110,39 +113,54 @@ export class DarkChessAI {
 
     // --- Evaluation ---
 
-    evaluate(board, side) {
+    evaluate(board, side, myMoves, oppMoves) {
         const oppSide = side === RED ? BLACK : RED;
         let score = 0;
         let myMaterial = 0, oppMaterial = 0;
         let myPieceCount = 0, oppPieceCount = 0;
+        let hiddenMy = 0, hiddenOpp = 0;
 
-        // Material count (revealed pieces only)
+        // Single pass: material + center control + hidden count
         for (let r = 0; r < 4; r++) {
             for (let c = 0; c < 8; c++) {
                 const p = board.getPiece(r, c);
-                if (!p || !p.revealed) continue;
+                if (!p) continue;
+                if (!p.revealed) {
+                    if (p.side === RED) { if (side === RED) hiddenMy++; else hiddenOpp++; }
+                    else { if (side === BLACK) hiddenMy++; else hiddenOpp++; }
+                    continue;
+                }
                 const val = DC_PIECE_VALUES[p.type] || 100;
+                const isCenter = r >= 1 && r <= 2 && c >= 2 && c <= 5;
                 if (p.side === side) {
                     score += val;
                     myMaterial += val;
                     myPieceCount++;
+                    if (isCenter) score += 5;
                 } else {
                     score -= val;
                     oppMaterial += val;
                     oppPieceCount++;
+                    if (isCenter) score -= 5;
                 }
             }
         }
 
-        // Mobility
-        const myMoves = generateDarkChessMoves(board, side);
-        const oppMoves = generateDarkChessMoves(board, oppSide);
-        const myNonFlip = myMoves.filter(a => a.action !== 'flip').length;
-        const oppNonFlip = oppMoves.filter(a => a.action !== 'flip').length;
+        // Mobility (use cached moves if provided)
+        if (!myMoves) myMoves = generateDarkChessMoves(board, side);
+        if (!oppMoves) oppMoves = generateDarkChessMoves(board, oppSide);
+
+        let myNonFlip = 0, oppNonFlip = 0;
+        for (const a of myMoves) { if (a.action !== 'flip') myNonFlip++; }
+        for (const a of oppMoves) { if (a.action !== 'flip') oppNonFlip++; }
         score += (myNonFlip - oppNonFlip) * 8;
 
-        // Capture threats: bonus for winning exchanges
+        // Capture threats + Piece safety (single pass over move lists)
+        const myMoveFromKeys = new Set();
         for (const m of myMoves) {
+            if (m.action !== 'flip') {
+                myMoveFromKeys.add((m.fromRow << 3) | m.fromCol);
+            }
             if (m.action === 'capture') {
                 const target = board.getPiece(m.toRow, m.toCol);
                 const attacker = board.getPiece(m.fromRow, m.fromCol);
@@ -153,33 +171,13 @@ export class DarkChessAI {
             }
         }
 
-        // Piece safety: penalty for pieces that can be captured
-        // Pre-compute which of our pieces have escape moves
-        const myMoveFromKeys = new Set();
-        for (const m of myMoves) {
-            if (m.action !== 'flip') {
-                myMoveFromKeys.add(`${m.fromRow},${m.fromCol}`);
-            }
-        }
-
         for (const m of oppMoves) {
             if (m.action === 'capture') {
                 const target = board.getPiece(m.toRow, m.toCol);
                 if (target && target.side === side) {
                     const val = DC_PIECE_VALUES[target.type] || 100;
-                    const canEscape = myMoveFromKeys.has(`${m.toRow},${m.toCol}`);
+                    const canEscape = myMoveFromKeys.has((m.toRow << 3) | m.toCol);
                     score -= canEscape ? val * 0.1 : val * 0.3;
-                }
-            }
-        }
-
-        // Center control bonus
-        for (let r = 0; r < 4; r++) {
-            for (let c = 0; c < 8; c++) {
-                const p = board.getPiece(r, c);
-                if (!p || !p.revealed) continue;
-                if (r >= 1 && r <= 2 && c >= 2 && c <= 5) {
-                    score += p.side === side ? 5 : -5;
                 }
             }
         }
@@ -191,9 +189,47 @@ export class DarkChessAI {
         }
 
         // Hidden piece count advantage
-        const hidden = this.getRemainingHidden(board);
-        score += (hidden[side] - hidden[oppSide]) * 15;
+        score += (hiddenMy - hiddenOpp) * 15;
 
+        return score;
+    }
+
+    // Lightweight evaluation for Monte Carlo simulations (no mobility)
+    evaluateFast(board, side) {
+        const oppSide = side === RED ? BLACK : RED;
+        let score = 0;
+        let myMaterial = 0, oppMaterial = 0;
+        let myPieceCount = 0, oppPieceCount = 0;
+        let hiddenMy = 0, hiddenOpp = 0;
+
+        for (let r = 0; r < 4; r++) {
+            for (let c = 0; c < 8; c++) {
+                const p = board.getPiece(r, c);
+                if (!p) continue;
+                if (!p.revealed) {
+                    if (p.side === side) hiddenMy++; else hiddenOpp++;
+                    continue;
+                }
+                const val = DC_PIECE_VALUES[p.type] || 100;
+                if (p.side === side) {
+                    score += val;
+                    myMaterial += val;
+                    myPieceCount++;
+                    if (r >= 1 && r <= 2 && c >= 2 && c <= 5) score += 5;
+                } else {
+                    score -= val;
+                    oppMaterial += val;
+                    oppPieceCount++;
+                    if (r >= 1 && r <= 2 && c >= 2 && c <= 5) score -= 5;
+                }
+            }
+        }
+
+        if (myPieceCount + oppPieceCount <= 6) {
+            score += (myMaterial - oppMaterial) * 0.2;
+        }
+
+        score += (hiddenMy - hiddenOpp) * 15;
         return score;
     }
 
@@ -264,7 +300,8 @@ export class DarkChessAI {
             piece.side = assigned.side;
             piece.revealed = true;
 
-            totalScore += this.evaluate(board, side);
+            // Use lightweight eval for MC (no mobility calculation)
+            totalScore += this.evaluateFast(board, side);
 
             // Restore
             piece.type = origType;
@@ -277,18 +314,15 @@ export class DarkChessAI {
 
     // --- Move Ordering ---
 
-    orderActions(board, actions, side) {
-        const oppSide = side === RED ? BLACK : RED;
-
-        // Pre-compute threatened positions
+    orderActions(board, actions, side, oppMoves) {
+        // Build threatened set from pre-computed opponent moves
         let threatened = null;
         const needsThreatInfo = actions.some(a => a.action === 'move');
-        if (needsThreatInfo) {
+        if (needsThreatInfo && oppMoves) {
             threatened = new Set();
-            const oppMoves = generateDarkChessMoves(board, oppSide);
             for (const m of oppMoves) {
                 if (m.action === 'capture') {
-                    threatened.add(`${m.toRow},${m.toCol}`);
+                    threatened.add((m.toRow << 3) | m.toCol);
                 }
             }
         }
@@ -307,10 +341,9 @@ export class DarkChessAI {
             return 10000 + net;
         }
         if (action.action === 'move') {
-            // Escape bonus: moving a threatened piece to safety
             if (threatened) {
-                const fromKey = `${action.fromRow},${action.fromCol}`;
-                const toKey = `${action.toRow},${action.toCol}`;
+                const fromKey = (action.fromRow << 3) | action.fromCol;
+                const toKey = (action.toRow << 3) | action.toCol;
                 if (threatened.has(fromKey) && !threatened.has(toKey)) {
                     const piece = board.getPiece(action.fromRow, action.fromCol);
                     return 5000 + (DC_PIECE_VALUES[piece?.type] || 0);
@@ -319,7 +352,6 @@ export class DarkChessAI {
             return 1000;
         }
         if (action.action === 'flip') {
-            // Safe flips first (fewer adjacent enemies)
             const { row, col } = action;
             const deltas = [[-1, 0], [1, 0], [0, -1], [0, 1]];
             let adjEnemies = 0;

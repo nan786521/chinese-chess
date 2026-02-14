@@ -1,3 +1,12 @@
+const FETCH_TIMEOUT = 10000; // 10 seconds
+
+function fetchWithTimeout(url, options = {}) {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
+    return fetch(url, { ...options, signal: controller.signal })
+        .finally(() => clearTimeout(id));
+}
+
 export class Network {
     constructor() {
         this.socket = null;
@@ -25,7 +34,7 @@ export class Network {
     // --- HTTP Auth ---
 
     async register(username, password) {
-        const res = await fetch('/api/register', {
+        const res = await fetchWithTimeout('/api/register', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password })
@@ -38,7 +47,7 @@ export class Network {
     }
 
     async login(username, password) {
-        const res = await fetch('/api/login', {
+        const res = await fetchWithTimeout('/api/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ username, password })
@@ -51,7 +60,7 @@ export class Network {
     }
 
     async fetchProfile() {
-        const res = await fetch('/api/profile', {
+        const res = await fetchWithTimeout('/api/profile', {
             headers: { 'Authorization': `Bearer ${this.token}` }
         });
         if (!res.ok) throw new Error('無法取得個人資料');
@@ -59,13 +68,13 @@ export class Network {
     }
 
     async fetchLeaderboard() {
-        const res = await fetch('/api/leaderboard');
+        const res = await fetchWithTimeout('/api/leaderboard');
         if (!res.ok) throw new Error('無法取得排行榜');
         return await res.json();
     }
 
     async fetchHistory() {
-        const res = await fetch('/api/history', {
+        const res = await fetchWithTimeout('/api/history', {
             headers: { 'Authorization': `Bearer ${this.token}` }
         });
         if (!res.ok) throw new Error('無法取得對局紀錄');
@@ -88,7 +97,13 @@ export class Network {
         this.token = token || this.token;
 
         // eslint-disable-next-line no-undef
-        this.socket = io({ auth: { token: this.token } });
+        this.socket = io({
+            auth: { token: this.token },
+            reconnection: true,
+            reconnectionDelay: 1000,
+            reconnectionDelayMax: 5000,
+            reconnectionAttempts: 5,
+        });
 
         this.socket.on('connect', () => this._emit('connected'));
         this.socket.on('disconnect', () => this._emit('disconnected'));

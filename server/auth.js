@@ -6,6 +6,36 @@ import { getUser, getUserById, createUser, getLeaderboard, getGameHistory } from
 const SALT_ROUNDS = 10;
 const TOKEN_EXPIRY = '7d';
 
+// Simple in-memory rate limiter for auth endpoints
+const rateLimitMap = new Map(); // ip -> { count, resetTime }
+const RATE_LIMIT_WINDOW = 60000; // 1 minute
+const RATE_LIMIT_MAX = 10; // max attempts per window
+
+function rateLimit(req, res, next) {
+    const ip = req.ip || req.connection.remoteAddress;
+    const now = Date.now();
+    const entry = rateLimitMap.get(ip);
+
+    if (!entry || now > entry.resetTime) {
+        rateLimitMap.set(ip, { count: 1, resetTime: now + RATE_LIMIT_WINDOW });
+        return next();
+    }
+
+    entry.count++;
+    if (entry.count > RATE_LIMIT_MAX) {
+        return res.status(429).json({ error: '請求過於頻繁，請稍後再試' });
+    }
+    next();
+}
+
+// Clean up stale rate limit entries every 5 minutes
+setInterval(() => {
+    const now = Date.now();
+    for (const [ip, entry] of rateLimitMap) {
+        if (now > entry.resetTime) rateLimitMap.delete(ip);
+    }
+}, 300000);
+
 function generateToken(user) {
     return jwt.sign({ userId: user.id, username: user.username }, JWT_SECRET, { expiresIn: TOKEN_EXPIRY });
 }
@@ -32,7 +62,7 @@ function authenticateHTTP(req, res, next) {
 }
 
 export function setupAuthRoutes(app) {
-    app.post('/api/register', async (req, res) => {
+    app.post('/api/register', rateLimit, async (req, res) => {
         try {
             const { username, password } = req.body;
             if (!username || !password) {
@@ -63,7 +93,7 @@ export function setupAuthRoutes(app) {
         }
     });
 
-    app.post('/api/login', async (req, res) => {
+    app.post('/api/login', rateLimit, async (req, res) => {
         try {
             const { username, password } = req.body;
             if (!username || !password) {

@@ -40,7 +40,7 @@ export class AIEngine {
         this.quiesceDepth = config.quiesceDepth;
         this.randomness = config.randomness;
         this.nodesSearched = 0;
-        this.killerMoves = [];
+        this.killerMoves = new Array(this.maxDepth + 10).fill(null);
         this.history = {};
         this.startTime = performance.now();
         this.timeLimit = TIME_LIMIT[this.difficulty] || 5000;
@@ -570,7 +570,8 @@ export class AIEngine {
 
     storeHistory(side, move, depth) {
         const key = `${side}_${move.fromRow}_${move.fromCol}_${move.toRow}_${move.toCol}`;
-        this.history[key] = (this.history[key] || 0) + depth * depth;
+        const val = (this.history[key] || 0) + depth * depth;
+        this.history[key] = val > 500000 ? 500000 : val;
     }
 
     getHistory(side, move) {

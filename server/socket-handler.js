@@ -143,6 +143,15 @@ export function setupSocketHandlers(io, socket, roomManager, gameManager) {
     // === Game Events ===
 
     socket.on('game:move', ({ fromRow, fromCol, toRow, toCol }) => {
+        // Validate input coordinates
+        if (!Number.isInteger(fromRow) || !Number.isInteger(fromCol) ||
+            !Number.isInteger(toRow) || !Number.isInteger(toCol) ||
+            fromRow < 0 || fromRow > 9 || fromCol < 0 || fromCol > 8 ||
+            toRow < 0 || toRow > 9 || toCol < 0 || toCol > 8) {
+            socket.emit('game:error', { message: '無效的座標' });
+            return;
+        }
+
         const room = roomManager.getUserRoom(user.userId);
         if (!room || !room.gameId) {
             socket.emit('game:error', { message: '不在遊戲中' });
@@ -233,7 +242,7 @@ export function setupSocketHandlers(io, socket, roomManager, gameManager) {
     // === Chat ===
 
     socket.on('chat:message', ({ text }) => {
-        if (!text || text.length > MAX_CHAT_LENGTH) return;
+        if (!text || typeof text !== 'string' || text.length > MAX_CHAT_LENGTH) return;
         const room = roomManager.getUserRoom(user.userId);
         if (!room) return;
 
@@ -260,28 +269,23 @@ export function setupSocketHandlers(io, socket, roomManager, gameManager) {
                 const timeout = gameManager.handleDisconnect(room.gameId, user.userId);
                 socket.to(room.code).emit('game:opponent-disconnected', { timeout });
 
-                // Set up callback for timeout
-                // The timeout handler in gameManager will be called automatically
-                const checkTimeout = setInterval(() => {
-                    const g = gameManager.getGame(room.gameId);
-                    if (!g || g.status === 'finished') {
-                        clearInterval(checkTimeout);
-                        if (g && g.reason === 'disconnect') {
-                            const eloChanges = finishGame(g);
-                            io.to(room.code).emit('game:over', {
-                                winner: g.winner,
-                                reason: 'disconnect',
-                                redEloChange: eloChanges?.redEloChange || 0,
-                                blackEloChange: eloChanges?.blackEloChange || 0
-                            });
-                            roomManager.finishRoom(room.code);
-                            gameManager.cleanupGame(room.gameId);
-                        }
+                // Single timeout check after disconnect timer expires (+ 1s buffer)
+                const gameId = room.gameId;
+                const roomCode = room.code;
+                setTimeout(() => {
+                    const g = gameManager.getGame(gameId);
+                    if (g && g.status === 'finished' && g.reason === 'disconnect') {
+                        const eloChanges = finishGame(g);
+                        io.to(roomCode).emit('game:over', {
+                            winner: g.winner,
+                            reason: 'disconnect',
+                            redEloChange: eloChanges?.redEloChange || 0,
+                            blackEloChange: eloChanges?.blackEloChange || 0
+                        });
+                        roomManager.finishRoom(roomCode);
+                        gameManager.cleanupGame(gameId);
                     }
-                }, 1000);
-
-                // Clean up the interval after reconnect timeout + buffer
-                setTimeout(() => clearInterval(checkTimeout), 35000);
+                }, timeout + 1000);
             }
         }
     });

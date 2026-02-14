@@ -5,6 +5,8 @@ import { isInCheck, checkGameOver } from '../shared/rules.js';
 import { PIECE_CHARS } from '../shared/constants.js';
 import { RECONNECT_TIMEOUT } from './config.js';
 
+const MAX_GAMES = 200;
+
 export class GameManager {
     constructor() {
         this.games = new Map(); // gameId -> GameState
@@ -189,6 +191,16 @@ export class GameManager {
         // Keep for a while for history, then remove from memory
         setTimeout(() => {
             this.games.delete(gameId);
-        }, 300000); // 5 minutes
+        }, 60000); // 1 minute
+
+        // Evict oldest finished games if over capacity
+        if (this.games.size > MAX_GAMES) {
+            for (const [id, game] of this.games) {
+                if (game.status === 'finished') {
+                    this.games.delete(id);
+                    if (this.games.size <= MAX_GAMES) break;
+                }
+            }
+        }
     }
 }
