@@ -1,8 +1,10 @@
 import { ROWS, COLS, INITIAL_POSITIONS } from './constants.js';
+import { pieceKeys, sideKey } from './zobrist.js';
 
 export class BoardLogic {
     constructor() {
         this.grid = [];
+        this.hash = 0;
     }
 
     init() {
@@ -10,12 +12,26 @@ export class BoardLogic {
         for (let r = 0; r < ROWS; r++) {
             this.grid[r] = new Array(COLS).fill(null);
         }
+        this.hash = 0;
     }
 
     setupInitialPosition() {
         this.init();
         for (const p of INITIAL_POSITIONS) {
             this.grid[p.row][p.col] = { type: p.type, side: p.side };
+        }
+        this.computeHash();
+    }
+
+    computeHash() {
+        this.hash = 0;
+        for (let r = 0; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+                const p = this.grid[r][c];
+                if (p) {
+                    this.hash = (this.hash ^ pieceKeys[p.type][p.side][r][c]) >>> 0;
+                }
+            }
         }
     }
 
@@ -29,6 +45,7 @@ export class BoardLogic {
                 copy.grid[r][c] = piece ? { type: piece.type, side: piece.side } : null;
             }
         }
+        copy.hash = this.hash;
         return copy;
     }
 
@@ -44,6 +61,7 @@ export class BoardLogic {
         this.grid = data.map(row => row.map(cell =>
             cell ? { type: cell.type, side: cell.side } : null
         ));
+        this.computeHash();
     }
 
     getPiece(row, col) {
@@ -52,15 +70,40 @@ export class BoardLogic {
     }
 
     setPiece(row, col, piece) {
+        // Update hash: remove old piece if any
+        const old = this.grid[row][col];
+        if (old) {
+            this.hash = (this.hash ^ pieceKeys[old.type][old.side][row][col]) >>> 0;
+        }
+        // Add new piece
+        if (piece) {
+            this.hash = (this.hash ^ pieceKeys[piece.type][piece.side][row][col]) >>> 0;
+        }
         this.grid[row][col] = piece;
     }
 
     removePiece(row, col) {
+        const old = this.grid[row][col];
+        if (old) {
+            this.hash = (this.hash ^ pieceKeys[old.type][old.side][row][col]) >>> 0;
+        }
         this.grid[row][col] = null;
     }
 
     movePiece(fromRow, fromCol, toRow, toCol) {
+        const moving = this.grid[fromRow][fromCol];
         const captured = this.grid[toRow][toCol];
+
+        // Incremental hash update
+        if (moving) {
+            this.hash = (this.hash ^ pieceKeys[moving.type][moving.side][fromRow][fromCol]) >>> 0;
+            this.hash = (this.hash ^ pieceKeys[moving.type][moving.side][toRow][toCol]) >>> 0;
+        }
+        if (captured) {
+            this.hash = (this.hash ^ pieceKeys[captured.type][captured.side][toRow][toCol]) >>> 0;
+        }
+        this.hash = (this.hash ^ sideKey) >>> 0;
+
         this.grid[toRow][toCol] = this.grid[fromRow][fromCol];
         this.grid[fromRow][fromCol] = null;
         return captured;
@@ -68,6 +111,18 @@ export class BoardLogic {
 
     undoMove(moveRecord) {
         const { fromRow, fromCol, toRow, toCol, captured } = moveRecord;
+        const moving = this.grid[toRow][toCol];
+
+        // Reverse hash update (XOR is self-inverse)
+        this.hash = (this.hash ^ sideKey) >>> 0;
+        if (captured) {
+            this.hash = (this.hash ^ pieceKeys[captured.type][captured.side][toRow][toCol]) >>> 0;
+        }
+        if (moving) {
+            this.hash = (this.hash ^ pieceKeys[moving.type][moving.side][toRow][toCol]) >>> 0;
+            this.hash = (this.hash ^ pieceKeys[moving.type][moving.side][fromRow][fromCol]) >>> 0;
+        }
+
         this.grid[fromRow][fromCol] = this.grid[toRow][toCol];
         this.grid[toRow][toCol] = captured || null;
     }
