@@ -44,8 +44,8 @@ export function setupAuthRoutes(app) {
             if (!/^[a-zA-Z0-9_\u4e00-\u9fff]+$/.test(username)) {
                 return res.status(400).json({ error: '用戶名只能包含字母、數字、底線或中文' });
             }
-            if (password.length < 4) {
-                return res.status(400).json({ error: '密碼至少需要 4 個字元' });
+            if (password.length < 8) {
+                return res.status(400).json({ error: '密碼至少需要 8 個字元' });
             }
 
             if (getUser(username)) {
